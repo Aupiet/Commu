@@ -1,8 +1,9 @@
 #include "globals.h"
 #include "speed_estimator.h"
 
-// Ajouter dans la section données globales :
+// --- CORRECTION : C'est ici qu'on crée la variable en mémoire ---
 SpeedEstimate estimatedSpeed = {0};
+
 uint8_t esp01Address[] = {0x34, 0x5F, 0x45, 0x62, 0xAC, 0x9C};
 
 SemaphoreHandle_t ctrlMutex;

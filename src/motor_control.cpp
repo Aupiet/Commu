@@ -123,6 +123,8 @@ void setMotorSpeedFromJoystick(int joyX, int joyY) {
   
   channelACtrl(pwmRight);
   channelBCtrl(pwmLeft);
+
+  currentSpeedPWM = (pwmLeft + pwmRight) / 2;
 }
 
 void motorControlTask(void *pvParameters) {
@@ -133,7 +135,7 @@ void motorControlTask(void *pvParameters) {
       joyY = ctrlData.joyY;
       xSemaphoreGive(ctrlMutex);
     }
-    if (obstacleDetected) {
+    if (obstacleDetected && joyX > 0) {
       stopMotors();
       vTaskDelay(100 / portTICK_PERIOD_MS);
       continue;

@@ -3,9 +3,9 @@
 
 #include <WiFi.h>
 #include "config.h"
-#include "speed_estimator.h"
+//#include "speed_estimator.h"
 // Ajouter dans la section "Control data" :
-extern SpeedEstimate estimatedSpeed;
+//extern SpeedEstimate estimatedSpeed;
 // Synchronization
 extern SemaphoreHandle_t ctrlMutex;
 extern SemaphoreHandle_t lidarMutex;

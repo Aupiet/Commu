@@ -21,6 +21,10 @@ extern uint8_t esp01Address[6];
 #define OLED_RESET -1
 #define OLED_ADDR 0x3C
 
+// --- CORRECTION I2C PINS (Wave Rover Standard) ---
+#define I2C_SDA 32
+#define I2C_SCL 33
+
 // Other Pins
 #define LED_PIN 2
 #define STREAM_PORT 8888
@@ -33,11 +37,11 @@ extern uint8_t esp01Address[6];
 #define MEAS_PER_PACKET 12
 #define POINT_BUFFER_SIZE 2000
 
-// Motor Pins
+// Motor Pins (Ces pins 21/22 ne doivent PAS être utilisés par Wire.begin par défaut)
 #define PWMA 25
 #define AIN2 17
-#define AIN1 21
-#define BIN1 22
+#define AIN1 21 
+#define BIN1 22 
 #define BIN2 23
 #define PWMB 26
 

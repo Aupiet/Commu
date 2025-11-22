@@ -5,6 +5,8 @@
 #include <esp_now.h>
 #include <esp_wifi.h>
 #include <ArduinoJson.h>
+// Ajout pour la fusion de vitesse
+#include "speed_estimator.h" 
 
 void initCommunication() {
   WiFi.mode(WIFI_AP_STA);
@@ -78,14 +80,24 @@ void communicationTask(void *pvParameters) {
       xSemaphoreGive(lidarMutex);
     }
     
-    float speed = abs(currentSpeedPWM) * 0.01f;
+    // --- MODIFICATION : Utilisation de la vitesse fusionnée ---
+    // On récupère la vitesse estimée en m/s
+    float speed = abs(estimatedSpeed.speed_m_per_sec); 
+    Serial.println("Estimated speed (m/s): " + String(estimatedSpeed.speed_m_per_sec, 2));
+    // Fallback de sécurité : si l'estimateur n'a jamais tourné (timestamp à 0),
+    // on utilise l'ancienne méthode basée sur le PWM
+    if (estimatedSpeed.last_update_ms == 0) {
+         speed = abs(currentSpeedPWM) * 0.01f; 
+    }
+    
     int rssi = WiFi.RSSI();
     
     if (millis() - lastFeedbackTime > 100) {
+      // Format strict conservé : {"T":130, "L":vitesse, "R":vitesse, ...}
       String json130 = "{\"T\":130,\"L\":" + String(speed, 2) + 
                        ",\"R\":" + String(speed, 2) + 
                        ",\"V\":11.7,\"RSSI\":" + String(rssi) + "}";
-      
+      Serial.println("Sending feedback: " + json130);
       esp_now_send(esp01Address, (uint8_t*)json130.c_str(), json130.length());
       lastFeedbackTime = millis();
     }

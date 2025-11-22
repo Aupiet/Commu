@@ -1,161 +1,151 @@
 #include "speed_estimator.h"
 #include "globals.h"
-#include <math.h>
 #include "IMU.h"
+#include "motor_control.h"
+#include <math.h> // Nécessaire pour sin() et PI
 
-// ========== ÉTATS INTERNES ==========
-static volatile uint32_t pulseCountLeft = 0;
-static volatile uint32_t pulseCountRight = 0;
-static volatile unsigned long lastPulseTimeLeft = 0;
-static volatile unsigned long lastPulseTimeRight = 0;
+// Note: estimatedSpeed est définie dans globals.cpp
 
-static SpeedEstimate currentEstimate = {
-    .speed_mm_per_sec = 0.0f,
-    .speed_m_per_sec = 0.0f,
-    .encoder_speed_mm_per_sec = 0.0f,
-    .imu_speed_mm_per_sec = 0.0f,
-    .confidence = 0.0f,
-    .last_update_ms = 0
-};
+volatile unsigned long leftPulseCount = 0;
+volatile unsigned long rightPulseCount = 0;
 
-static SemaphoreHandle_t speedMutex = nullptr;
-static float imuIntegratedSpeed = 0.0f;  // Intégration accélération IMU
-static unsigned long lastEstimatorUpdateMs = 0;
+unsigned long lastCalcTime = 0;
+unsigned long lastLeftPulses = 0;
+unsigned long lastRightPulses = 0;
+float velocityEstimate = 0.0f; 
 
-// ========== INITIALISATION ==========
+SemaphoreHandle_t encoderMutex;
+
+void IRAM_ATTR onEncoderLeftPulse() {
+  leftPulseCount++;
+}
+
+void IRAM_ATTR onEncoderRightPulse() {
+  rightPulseCount++;
+}
+
 void initSpeedEstimator() {
-    speedMutex = xSemaphoreCreateMutex();
-    pulseCountLeft = 0;
-    pulseCountRight = 0;
-    lastPulseTimeLeft = millis();
-    lastPulseTimeRight = millis();
-    imuIntegratedSpeed = 0.0f;
-    lastEstimatorUpdateMs = millis();
-    Serial.println("[SPEED] Estimateur vitesse initialise");
+  encoderMutex = xSemaphoreCreateMutex();
+  resetSpeedEstimator();
+  Serial.println("Speed Estimator Initialized");
 }
 
-// ========== CALLBACKS ENCODEURS ==========
-void onEncoderLeftPulse() {
-    pulseCountLeft++;
-    lastPulseTimeLeft = micros();
-}
-
-void onEncoderRightPulse() {
-    pulseCountRight++;
-    lastPulseTimeRight = micros();
-}
-
-// ========== TÂCHE ESTIMATEUR (FreeRTOS) ==========
-void speedEstimatorTask(void *pvParameters) {
-    Serial.printf("SpeedEstimator task running on core %d\n", xPortGetCoreID());
-    
-    float filteredSpeed = 0.0f;
-    unsigned long lastCalcMs = millis();
-    
-    while (true) {
-        unsigned long nowMs = millis();
-        float dtSec = (float)(nowMs - lastCalcMs) * 0.001f;  // dt en secondes
-        if (dtSec < 0.01f) dtSec = 0.01f;  // Minimum 10ms
-        
-        // --- 1. Récupérer données encodeurs ---
-        uint32_t pulseL = 0, pulseR = 0;
-        if (xSemaphoreTake(speedMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
-            pulseL = pulseCountLeft;
-            pulseR = pulseCountRight;
-            pulseCountLeft = 0;
-            pulseCountRight = 0;
-            xSemaphoreGive(speedMutex);
-        }
-        
-        // Calcul vitesse encodeur (moyenne L+R)
-        float totalPulses = (float)(pulseL + pulseR) * 0.5f;
-        float distanceMm = totalPulses * ENCODER_DIST_PER_PULSE;
-        float encoderSpeedMmSec = distanceMm / dtSec;
-        
-        // --- 2. Récupérer données IMU (accélération) ---
-        float imuSpeedMmSec = 0.0f;
-        float accelMagnitude = 0.0f;
-        
-        if (xSemaphoreTake(speedMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
-            // Récupérer accél brute depuis globals
-            float ax = imuAccelRaw.X;
-            float ay = imuAccelRaw.Y;
-            
-            // Magnitude accélération horizontale (ignorer Z qui est gravité)
-            accelMagnitude = sqrtf(ax*ax + ay*ay);
-            
-            // Intégration accélération -> vitesse (attention : dérive lente)
-            if (accelMagnitude > MIN_ACCEL_MAGNITUDE) {
-                imuIntegratedSpeed += (accelMagnitude * 0.001f) * dtSec;  // mg -> m/s²
-                imuIntegratedSpeed = constrain(imuIntegratedSpeed, 0.0f, MAX_EXPECTED_SPEED);
-            } else {
-                imuIntegratedSpeed *= 0.95f;  // Décroissance lente si pas de mouvement
-            }
-            
-            imuSpeedMmSec = imuIntegratedSpeed * 1000.0f;  // m/s -> mm/s
-            xSemaphoreGive(speedMutex);
-        }
-        
-        // --- 3. Fusion Kalman simplifié ---
-        float fusedSpeedMmSec = 0.0f;
-        float confidence = 0.5f;
-        
-        if (encoderSpeedMmSec > 1.0f || imuSpeedMmSec > 1.0f) {
-            // Pondération adaptative selon fiabilité encodeur
-            float encoderReliability = (encoderSpeedMmSec > 0.1f) ? 1.0f : 0.5f;
-            float imuReliability = (accelMagnitude > MIN_ACCEL_MAGNITUDE) ? 0.8f : 0.3f;
-            
-            float totalWeight = (ENCODER_WEIGHT * encoderReliability) + (IMU_ACCEL_WEIGHT * imuReliability);
-            
-            if (totalWeight > 0.01f) {
-                fusedSpeedMmSec = 
-                    (encoderSpeedMmSec * ENCODER_WEIGHT * encoderReliability +
-                     imuSpeedMmSec * IMU_ACCEL_WEIGHT * imuReliability) / totalWeight;
-                
-                confidence = totalWeight / (ENCODER_WEIGHT + IMU_ACCEL_WEIGHT);
-            }
-        }
-        
-        // Saturation et filtre IIR
-        fusedSpeedMmSec = constrain(fusedSpeedMmSec, 0.0f, MAX_EXPECTED_SPEED * 1000.0f);
-        filteredSpeed = filteredSpeed + SPEED_FILTER_ALPHA * (fusedSpeedMmSec - filteredSpeed);
-        
-        // --- 4. Mettre à jour structure globale ---
-        if (xSemaphoreTake(speedMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
-            currentEstimate.speed_mm_per_sec = filteredSpeed;
-            currentEstimate.speed_m_per_sec = filteredSpeed * 0.001f;
-            currentEstimate.encoder_speed_mm_per_sec = encoderSpeedMmSec;
-            currentEstimate.imu_speed_mm_per_sec = imuSpeedMmSec;
-            currentEstimate.confidence = confidence;
-            currentEstimate.last_update_ms = nowMs;
-            xSemaphoreGive(speedMutex);
-        }
-        
-        lastCalcMs = nowMs;
-        vTaskDelay(50 / portTICK_PERIOD_MS);  // 20 Hz
-    }
-}
-
-// ========== GETTER ==========
-SpeedEstimate getSpeedEstimate() {
-    SpeedEstimate result = {0};
-    
-    if (xSemaphoreTake(speedMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-        result = currentEstimate;
-        xSemaphoreGive(speedMutex);
-    }
-    
-    return result;
-}
-
-// ========== RESET ==========
 void resetSpeedEstimator() {
-    if (xSemaphoreTake(speedMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-        pulseCountLeft = 0;
-        pulseCountRight = 0;
-        imuIntegratedSpeed = 0.0f;
-        currentEstimate.speed_mm_per_sec = 0.0f;
-        currentEstimate.speed_m_per_sec = 0.0f;
-        xSemaphoreGive(speedMutex);
+  // Reset variables...
+  estimatedSpeed.speed_mm_per_sec = 0;
+  estimatedSpeed.speed_m_per_sec = 0;
+  estimatedSpeed.encoder_speed_mm_per_sec = 0;
+  estimatedSpeed.imu_speed_mm_per_sec = 0;
+  estimatedSpeed.confidence = 0;
+  estimatedSpeed.last_update_ms = 0;
+  
+  velocityEstimate = 0;
+  
+  if (encoderMutex) {
+    xSemaphoreTake(encoderMutex, portMAX_DELAY);
+    leftPulseCount = 0;
+    rightPulseCount = 0;
+    lastLeftPulses = 0;
+    lastRightPulses = 0;
+    xSemaphoreGive(encoderMutex);
+  }
+  lastCalcTime = millis();
+}
+
+void speedEstimatorTask(void *pvParameters) {
+  const int loop_delay_ms = 20; // 50Hz
+  
+  while (true) {
+    unsigned long now = millis();
+    float dt = (now - lastCalcTime) / 1000.0f;
+    
+    if (dt >= 0.02f) {
+      // 1. Mise à jour IMU (lit accéléro + calcule angles)
+      updateIMUData(); 
+      
+      // 2. Lecture Encodeurs
+      unsigned long currentLeft = 0;
+      unsigned long currentRight = 0;
+      
+      if (xSemaphoreTake(encoderMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+        currentLeft = leftPulseCount;
+        currentRight = rightPulseCount;
+        xSemaphoreGive(encoderMutex);
+      }
+      
+      long deltaLeft = currentLeft - lastLeftPulses;
+      long deltaRight = currentRight - lastRightPulses;
+      
+      lastLeftPulses = currentLeft;
+      lastRightPulses = currentRight;
+      lastCalcTime = now;
+      
+      // 3. Calcul vitesse Encodeurs (référence stable)
+      float distLeft = deltaLeft * ENCODER_DIST_PER_PULSE;
+      float distRight = deltaRight * ENCODER_DIST_PER_PULSE;
+      float distAvg = (distLeft + distRight) / 2.0f;
+      
+      float speedEnc = 0;
+      if (dt > 0) speedEnc = distAvg / dt; 
+      
+      // Sens de rotation (si pas de pin direction sur encodeurs, on utilise le PWM comme indice)
+      if (currentSpeedPWM < 0) speedEnc = -fabs(speedEnc);
+      
+      // --- CORRECTION DU CALCUL IMU ---
+      
+      // Conversion de l'accélération brute (supposée en 'g') en 'mm/s²'
+      // ATTENTION : stAccelRawData contient la gravité !
+      // Il faut compenser l'inclinaison (Pitch) du robot.
+      
+      // Conversion degrés -> radians
+      float pitchRad = stAngles.pitch * (PI / 180.0f); 
+      
+      // Calcul de la composante de gravité sur l'axe X
+      // Si le robot monte (pitch positif), la gravité tire vers l'arrière (-X)
+      // La formule dépend de l'orientation de votre puce, souvent : g_x = sin(pitch)
+      float gravityCompG = sin(pitchRad); 
+      
+      // Accélération Linéaire = Accélération Mesurée - Gravité
+      float linearAccelG = stAccelRawData.X - gravityCompG; 
+      
+      // Conversion en mm/s² (1g ~= 9806.65 mm/s²)
+      float accelFwd = linearAccelG * 9806.65f; 
+
+      // Deadband (Zone morte) : Filtrer le bruit électronique
+      if (fabs(linearAccelG) < 0.05f) { // Ignorer si inférieur à ~0.05g
+        accelFwd = 0;
+      }
+      
+      // Intégration : Vitesse = Vitesse_Precedente + Acceleration * temps
+      float velPrediction = velocityEstimate + (accelFwd * dt);
+      
+      // --- FUSION (Filtre Complémentaire) ---
+      
+      // Si on est censé être à l'arrêt (PWM 0 et encodeurs immobiles)
+      if (currentSpeedPWM == 0 && fabs(speedEnc) < 10) {
+        // On force la vitesse vers 0 rapidement pour éviter la dérive
+        velocityEstimate = velocityEstimate * 0.5f; 
+        if (fabs(velocityEstimate) < 5.0f) velocityEstimate = 0;
+        velPrediction = 0; // Reset de l'intégrale IMU
+      } else {
+        // Fusion : On fait confiance aux encodeurs à long terme (90-95%) 
+        // et à l'IMU pour les changements rapides (5-10%)
+        // ENCODER_WEIGHT devrait être autour de 0.90 ou 0.95
+        velocityEstimate = (velPrediction * (1.0f - ENCODER_WEIGHT)) + (speedEnc * ENCODER_WEIGHT);
+      }
+
+      // Mise à jour structure globale
+      estimatedSpeed.speed_mm_per_sec = velocityEstimate;
+      estimatedSpeed.speed_m_per_sec = velocityEstimate / 1000.0f;
+      estimatedSpeed.encoder_speed_mm_per_sec = speedEnc;
+      estimatedSpeed.imu_speed_mm_per_sec = velPrediction; 
+      estimatedSpeed.last_update_ms = now;
+      
+      // Debug
+      // Serial.print("Enc:"); Serial.print(speedEnc);
+      // Serial.print(" IMU_Raw:"); Serial.print(accelFwd);
+      // Serial.print(" Est:"); Serial.println(velocityEstimate);
     }
+    vTaskDelay(loop_delay_ms / portTICK_PERIOD_MS);
+  }
 }
