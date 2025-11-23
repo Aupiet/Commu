@@ -13,34 +13,27 @@
 #define ENCODER_LEFT_PIN 35
 #define ENCODER_RIGHT_PIN 34
 
-// ISR Callbacks encodeurs
 void IRAM_ATTR encoderLeftISR() {
   onEncoderLeftPulse();
 }
-
 void IRAM_ATTR encoderRightISR() {
   onEncoderRightPulse();
 }
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("\n=== ESP32 WAVE ROVER v3.1 (Fixed I2C) ===\n");
+  Serial.println("\n=== ESP32 WAVE ROVER v3.2 (Lidar Optimized) ===\n");
   
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
   
-  // --- CORRECTION CRITIQUE I2C ---
-  // On force les pins 32 et 33. 
-  // Si on ne le fait pas, Wire prend 21/22 et coupe les moteurs.
+  // I2C Fixe pour ESP32
   Wire.begin(I2C_SDA, I2C_SCL);
   Wire.setClock(400000); 
-  // -------------------------------
 
-  initDisplay(); // N'appelle plus Wire.begin()
+  initDisplay();
   initLidar();
-  initMotors();  // Pins 21 et 22 maintenant libres
-  
-  // Init IMU & Speed
+  initMotors();
   imuInit(); 
   initSpeedEstimator();
   
@@ -52,19 +45,24 @@ void setup() {
   
   initCommunication();
   
-  // Synchro
+  // Mutex
   ctrlMutex = xSemaphoreCreateMutex();
   lidarMutex = xSemaphoreCreateMutex();
   bufferMutex = xSemaphoreCreateMutex();
-  packetQueue = xQueueCreate(50, PACKET_SIZE);
+  
+  // NOTE: packetQueue a été supprimé car on traite le LiDAR en direct maintenant
   
   memset(&ctrlData, 0, sizeof(ctrlData));
-  memset(pointBuffer, 0, sizeof(pointBuffer));
   
-  // Tasks
+  // --- LANCEMENT DES TÂCHES (Correction de ton erreur ici) ---
+  
+  // Priorité 5 (Max) : Nouvelle tâche unique LiDAR optimisée
+  xTaskCreatePinnedToCore(lidarTask, "LidarFast", 4096, NULL, 5, NULL, 1);
+  
+  // Priorité 3 : Moteurs
   xTaskCreatePinnedToCore(motorControlTask, "Motors", 4096, NULL, 3, NULL, 1);
-  xTaskCreatePinnedToCore(lidarReadTask, "LidarRead", 4096, NULL, 5, NULL, 1);
-  xTaskCreatePinnedToCore(lidarProcessTask, "LidarProcess", 8192, NULL, 4, NULL, 1);
+  
+  // Autres tâches
   xTaskCreatePinnedToCore(speedEstimatorTask, "SpeedEst", 4096, NULL, 4, NULL, 1);
   xTaskCreatePinnedToCore(communicationTask, "ESPNOW", 4096, NULL, 2, NULL, 0);
   xTaskCreatePinnedToCore(streamingTask, "TCPStream", 8192, NULL, 1, NULL, 0);
@@ -74,15 +72,11 @@ void setup() {
 }
 
 void loop() {
+  // Statut toutes les 2s
   static unsigned long lastStats = 0;
-  if (millis() - lastStats > 10000) {
-    Serial.printf("Stats - Cmd:%u Speed:%.2fm/s (Enc:%.2f IMU:%.2f) Obs:%s\n", 
-                  receivedCommands, 
-                  estimatedSpeed.speed_m_per_sec, 
-                  estimatedSpeed.encoder_speed_mm_per_sec/1000.0,
-                  estimatedSpeed.imu_speed_mm_per_sec/1000.0,
-                  obstacleDetected ? "YES" : "NO");
-    lastStats = millis();
+  if (millis() - lastStats > 2000) {
+     if(obstacleDetected) Serial.println("!!! OBSTACLE !!!");
+     lastStats = millis();
   }
-  vTaskDelay(1000 / portTICK_PERIOD_MS);
+  vTaskDelay(100);
 }
