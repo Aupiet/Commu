@@ -75,6 +75,7 @@ void communicationTask(void *pvParameters) {
     
     float speed = estimatedSpeed.speed_m_per_sec;
     int rssi = WiFi.RSSI();
+    //rssi = random(-40, -30); 
 
     // --- 2. Envoi VITESSE (Type 130) ---
     // Prioritaire : On l'envoie toutes les 200ms
@@ -93,6 +94,8 @@ void communicationTask(void *pvParameters) {
 
     // --- 3. Envoi LIDAR (Type 2000) ---
     // S'exécute toutes les 100ms, MAIS SEULEMENT si la voie est libre (!packetSentThisLoop)
+    obs = 0;
+    dist = 0;
     if (now - lastLidar > 100 && !packetSentThisLoop) {
       String jsonLidar = "{\"T\":2000,\"dist\":" + String(dist, 1) + 
                          ",\"obstacle\":" + String(obs ? "true" : "false") + "}";

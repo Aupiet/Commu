@@ -6,5 +6,6 @@
 void initLidar();
 // Une seule tâche optimisée qui lit ET traite
 void lidarTask(void *pvParameters); 
+void microRosLidarTask(void *pvParameters); 
 
 #endif

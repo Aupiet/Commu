@@ -1,4 +1,8 @@
 #include "IMU.h"
+#include <micro_ros_arduino.h>
+#include <rcl/rcl.h>
+#include <rclc/rclc.h>
+#include <sensor_msgs/msg/imu.h>
 
 // --- CORRECTION : Instanciation des variables globales ---
 EulerAngles stAngles;
@@ -188,4 +192,51 @@ void calibrateMagn(void)
   offset_x = (temp[0]+temp[3])/2;
   offset_y = (temp[1]+temp[4])/2;
   offset_z = (temp[5]+temp[8])/2;
+}
+
+void imuTask(void *pvParameters) {
+    rcl_allocator_t allocator = rcl_get_default_allocator();
+    rclc_support_t support;
+    rclc_support_init(&support, 0, NULL, &allocator);
+
+    rcl_node_t imu_node;
+    rclc_node_init_default(&imu_node, "esp32_imu_node", "", &support);
+
+    rcl_publisher_t imu_pub;
+    rclc_publisher_init_default(
+        &imu_pub,
+        &imu_node,
+        ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu),
+        "/imu"
+    );
+
+    sensor_msgs__msg__Imu imu_msg;
+    imu_msg.header.frame_id.data = (char*)"imu_link";
+    imu_msg.header.frame_id.size = strlen("imu_link");
+    imu_msg.header.frame_id.capacity = imu_msg.header.frame_id.size + 1;
+
+
+    while(true) {
+        updateIMUData(); // Remplit stAngles, stAccelRawData, stGyroRawData
+
+        int64_t now_ns = rmw_uros_epoch_nanos();
+        imu_msg.header.stamp.sec = now_ns / 1000000000;
+        imu_msg.header.stamp.nanosec = now_ns % 1000000000;
+
+        imu_msg.orientation.x = q1;
+        imu_msg.orientation.y = q2;
+        imu_msg.orientation.z = q3;
+        imu_msg.orientation.w = q0;
+
+        imu_msg.angular_velocity.x = stGyroRawData.X;
+        imu_msg.angular_velocity.y = stGyroRawData.Y;
+        imu_msg.angular_velocity.z = stGyroRawData.Z;
+
+        imu_msg.linear_acceleration.x = stAccelRawData.X;
+        imu_msg.linear_acceleration.y = stAccelRawData.Y;
+        imu_msg.linear_acceleration.z = stAccelRawData.Z;
+
+        rcl_publish(&imu_pub, &imu_msg, NULL);
+        vTaskDelay(pdMS_TO_TICKS(50)); // 20 Hz
+    }
 }

@@ -1,4 +1,10 @@
 #include <Arduino.h>
+#include <micro_ros_arduino.h>
+#include <rcl/rcl.h>
+#include <rclc/rclc.h>
+#include <rclc/executor.h>
+#include <sensor_msgs/msg/laser_scan.h>
+#include <std_msgs/msg/bool.h>
 #include "config.h"
 #include "globals.h"
 #include "motor_control.h"
@@ -21,8 +27,17 @@ void IRAM_ATTR encoderRightISR() {
 }
 
 void setup() {
+  delay(5000);
   Serial.begin(115200);
   Serial.println("\n=== ESP32 WAVE ROVER v3.2 (Lidar Optimized) ===\n");
+
+  // Transport micro-ROS (USB ou WiFi)
+  set_microros_transports();
+  Serial.println("MICRO-ROS START");
+
+  initLidar();
+
+  Serial.println("System ready (LiDAR + micro-ROS)");
   
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
@@ -32,7 +47,6 @@ void setup() {
   Wire.setClock(400000); 
 
   initDisplay();
-  initLidar();
   initMotors();
   imuInit(); 
   initSpeedEstimator();
@@ -44,7 +58,7 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(ENCODER_RIGHT_PIN), encoderRightISR, RISING);
   
   initCommunication();
-  
+
   // Mutex
   ctrlMutex = xSemaphoreCreateMutex();
   lidarMutex = xSemaphoreCreateMutex();
@@ -58,14 +72,18 @@ void setup() {
   
   // Priorité 5 (Max) : Nouvelle tâche unique LiDAR optimisée
   xTaskCreatePinnedToCore(lidarTask, "LidarFast", 4096, NULL, 5, NULL, 1);
+  xTaskCreatePinnedToCore(microRosLidarTask, "microROS_Lidar", 24000, NULL, 5, NULL, 1);
+
   
   // Priorité 3 : Moteurs
-  xTaskCreatePinnedToCore(motorControlTask, "Motors", 4096, NULL, 3, NULL, 1);
+  //xTaskCreatePinnedToCore(motorControlTask, "Motors", 4096, NULL, 3, NULL, 1);
   
   // Autres tâches
-  xTaskCreatePinnedToCore(speedEstimatorTask, "SpeedEst", 4096, NULL, 4, NULL, 1);
-  xTaskCreatePinnedToCore(communicationTask, "ESPNOW", 4096, NULL, 2, NULL, 0);
-  xTaskCreatePinnedToCore(streamingTask, "TCPStream", 8192, NULL, 1, NULL, 0);
+  xTaskCreatePinnedToCore(imuTask, "microROS_IMU", 8192, NULL, 4, NULL, 0);
+
+  //xTaskCreatePinnedToCore(speedEstimatorTask, "SpeedEst", 4096, NULL, 4, NULL, 1);
+  //xTaskCreatePinnedToCore(communicationTask, "ESPNOW", 4096, NULL, 2, NULL, 0);
+  //xTaskCreatePinnedToCore(streamingTask, "TCPStream", 8192, NULL, 1, NULL, 0);
 
   Serial.println("\n=== SYSTEM READY ===\n");
   digitalWrite(LED_PIN, HIGH);

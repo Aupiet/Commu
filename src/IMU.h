@@ -25,5 +25,6 @@ void imuDataGet(EulerAngles *pstAngles,
 
 void updateIMUData(); 
 void calibrateMagn();
+void imuTask(void *pvParameters);
 
 #endif
