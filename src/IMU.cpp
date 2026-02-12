@@ -31,8 +31,12 @@ double declination_shenzhen = -3.22;
 
 float q0, q1, q2, q3;
 
-extern sensor_msgs__msg__Imu imu_msg;
-extern rcl_publisher_t imu_pub;
+// micro-ROS IMU (static, géré dans imuTask)
+static rcl_publisher_t imu_pub;
+static sensor_msgs__msg__Imu imu_msg;
+static rcl_node_t imu_node;
+static rclc_support_t imu_support;
+static rcl_allocator_t imu_allocator;
 
 void imuInit() {
   Wire.begin(I2C_SDA, I2C_SCL);
@@ -227,12 +231,51 @@ void calibrateMagn(void) {
 
 void imuTask(void *pvParameters) {
 
+  Serial.println("[uROS-IMU] Task started, waiting 3s...");
+  vTaskDelay(pdMS_TO_TICKS(3000));
+
+  imu_allocator = rcl_get_default_allocator();
+
+  // Retry loop pour rclc_support_init
+  Serial.println("[uROS-IMU] Calling rclc_support_init...");
+  rcl_ret_t ret;
+  int attempts = 0;
+  do {
+    ret = rclc_support_init(&imu_support, 0, NULL, &imu_allocator);
+    if (ret != RCL_RET_OK) {
+      attempts++;
+      Serial.printf("[uROS-IMU] support_init FAILED (ret=%d), attempt %d, "
+                    "retrying in 2s...\n",
+                    (int)ret, attempts);
+      vTaskDelay(pdMS_TO_TICKS(2000));
+    }
+  } while (ret != RCL_RET_OK && attempts < 30);
+
+  if (ret != RCL_RET_OK) {
+    Serial.println("[uROS-IMU] ABANDON: agent unreachable after 60s");
+    vTaskDelete(NULL);
+    return;
+  }
+  Serial.println("[uROS-IMU] support_init OK");
+
+  Serial.println("[uROS-IMU] Creating node...");
+  rclc_node_init_default(&imu_node, "esp32_imu", "", &imu_support);
+  Serial.println("[uROS-IMU] Node OK");
+
+  Serial.println("[uROS-IMU] Creating imu publisher...");
+  rclc_publisher_init_default(
+      &imu_pub, &imu_node, ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu),
+      "/imu");
+  Serial.println("[uROS-IMU] imu_pub OK");
+
   imu_msg.header.frame_id.data = (char *)"imu_link";
   imu_msg.header.frame_id.size = strlen("imu_link");
   imu_msg.header.frame_id.capacity = imu_msg.header.frame_id.size + 1;
 
+  Serial.println("[uROS-IMU] Init complete, entering publish loop");
+
   while (true) {
-    updateIMUData(); // Remplit stAngles, stAccelRawData, stGyroRawData
+    updateIMUData();
 
     int64_t now_ns = rmw_uros_epoch_nanos();
     imu_msg.header.stamp.sec = now_ns / 1000000000;
