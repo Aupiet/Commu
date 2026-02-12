@@ -10,16 +10,17 @@
 #include <std_msgs/msg/bool.h>
 
 
-// Flag micro-ROS
-extern volatile bool microRosConnected;
-
 HardwareSerial lidarSerial(1);
 
 // ===== micro-ROS =====
-extern rcl_publisher_t scan_pub;
-extern rcl_publisher_t obstacle_pub;
-extern sensor_msgs__msg__LaserScan scan_msg;
-extern std_msgs__msg__Bool obstacle_msg;
+static rcl_publisher_t scan_pub;
+static rcl_publisher_t obstacle_pub;
+static sensor_msgs__msg__LaserScan scan_msg;
+static std_msgs__msg__Bool obstacle_msg;
+
+static rcl_node_t node;
+static rclc_support_t support;
+static rcl_allocator_t allocator;
 
 // ===== PARAMÈTRES =====
 #define DIST_STOP_MM 350
@@ -120,6 +121,18 @@ void lidarTask(void *pv) {
 void microRosLidarTask(void *pv) {
 
   rclc_executor_t executor;
+  allocator = rcl_get_default_allocator();
+  rclc_support_init(&support, 0, NULL, &allocator);
+  rclc_node_init_default(&node, "esp32_lidar", "", &support);
+  rclc_executor_init(&executor, &support.context, 0, &allocator);
+
+  rclc_publisher_init_default(
+      &scan_pub, &node,
+      ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, LaserScan), "/scan");
+
+  rclc_publisher_init_default(&obstacle_pub, &node,
+                              ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Bool),
+                              "/obstacle");
 
   scan_msg.header.frame_id.data = (char *)"laser";
   scan_msg.header.frame_id.size = strlen("laser");
@@ -157,15 +170,9 @@ void microRosLidarTask(void *pv) {
     scan_msg.header.stamp.sec = rmw_uros_epoch_millis() / 1000;
     scan_msg.header.stamp.nanosec = (rmw_uros_epoch_millis() % 1000) * 1000000;
 
-    if (microRosConnected) {
-      rcl_ret_t ret1 = rcl_publish(&scan_pub, &scan_msg, NULL);
-      rcl_ret_t ret2 = rcl_publish(&obstacle_pub, &obstacle_msg, NULL);
-      if (ret1 != RCL_RET_OK || ret2 != RCL_RET_OK) {
-        Serial.printf("[uROS] Publish fail: scan=%d obs=%d\n", (int)ret1,
-                      (int)ret2);
-      }
-    }
+    rcl_publish(&scan_pub, &scan_msg, NULL);
+    rcl_publish(&obstacle_pub, &obstacle_msg, NULL);
 
-    vTaskDelay(pdMS_TO_TICKS(100)); // 10 Hz (réduit pour moins de charge)
+    vTaskDelay(pdMS_TO_TICKS(50)); // 20 Hz
   }
 }

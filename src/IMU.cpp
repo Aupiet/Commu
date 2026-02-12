@@ -4,9 +4,6 @@
 #include <rclc/rclc.h>
 #include <sensor_msgs/msg/imu.h>
 
-// Flag micro-ROS
-extern volatile bool microRosConnected;
-
 // --- CORRECTION : Instanciation des variables globales ---
 EulerAngles stAngles;
 IMU_ST_SENSOR_DATA_FLOAT stGyroRawData;
