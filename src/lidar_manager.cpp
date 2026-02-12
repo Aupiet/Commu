@@ -17,9 +17,11 @@ static rcl_publisher_t obstacle_pub;
 static sensor_msgs__msg__LaserScan scan_msg;
 static std_msgs__msg__Bool obstacle_msg;
 
-static rcl_node_t node;
-static rclc_support_t support;
-static rcl_allocator_t allocator;
+// Partagés avec imuTask (non-static)
+rcl_node_t uros_node;
+rclc_support_t uros_support;
+rcl_allocator_t uros_allocator;
+volatile bool microRosReady = false; // Signal pour les autres tâches
 
 // ===== PARAMÈTRES =====
 #define DIST_STOP_MM 350
@@ -123,14 +125,14 @@ void microRosLidarTask(void *pv) {
   vTaskDelay(pdMS_TO_TICKS(2000));
 
   rclc_executor_t executor;
-  allocator = rcl_get_default_allocator();
+  uros_allocator = rcl_get_default_allocator();
 
   // Retry loop pour rclc_support_init (attend que l'agent soit joignable)
   Serial.println("[uROS-LIDAR] Calling rclc_support_init...");
   rcl_ret_t ret;
   int attempts = 0;
   do {
-    ret = rclc_support_init(&support, 0, NULL, &allocator);
+    ret = rclc_support_init(&uros_support, 0, NULL, &uros_allocator);
     if (ret != RCL_RET_OK) {
       attempts++;
       Serial.printf("[uROS-LIDAR] support_init FAILED (ret=%d), attempt %d, "
@@ -148,24 +150,28 @@ void microRosLidarTask(void *pv) {
   Serial.println("[uROS-LIDAR] support_init OK");
 
   Serial.println("[uROS-LIDAR] Creating node...");
-  rclc_node_init_default(&node, "esp32_lidar", "", &support);
+  rclc_node_init_default(&uros_node, "esp32_node", "", &uros_support);
   Serial.println("[uROS-LIDAR] Node OK");
 
   Serial.println("[uROS-LIDAR] Creating executor...");
-  rclc_executor_init(&executor, &support.context, 0, &allocator);
+  rclc_executor_init(&executor, &uros_support.context, 0, &uros_allocator);
   Serial.println("[uROS-LIDAR] Executor OK");
 
   Serial.println("[uROS-LIDAR] Creating scan publisher...");
   rclc_publisher_init_default(
-      &scan_pub, &node,
+      &scan_pub, &uros_node,
       ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, LaserScan), "/scan");
   Serial.println("[uROS-LIDAR] scan_pub OK");
 
   Serial.println("[uROS-LIDAR] Creating obstacle publisher...");
-  rclc_publisher_init_default(&obstacle_pub, &node,
+  rclc_publisher_init_default(&obstacle_pub, &uros_node,
                               ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Bool),
                               "/obstacle");
   Serial.println("[uROS-LIDAR] obstacle_pub OK");
+
+  // Signaler que micro-ROS est prêt (pour imuTask)
+  microRosReady = true;
+  Serial.println("[uROS-LIDAR] microRosReady = true");
 
   scan_msg.header.frame_id.data = (char *)"laser";
   scan_msg.header.frame_id.size = strlen("laser");
