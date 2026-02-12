@@ -6,8 +6,8 @@
 void initMotors();
 void stopMotors();
 void testMotors();
-void channelACtrl(float pwmInput);
-void channelBCtrl(float pwmInput);
+void channelACtrl(int pwmInput);
+void channelBCtrl(int pwmInput);
 void setMotorSpeedFromJoystick(int joyX, int joyY);
 void motorControlTask(void *pvParameters);
 

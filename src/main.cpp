@@ -11,9 +11,10 @@
 #include <micro_ros_arduino.h>
 #include <rcl/rcl.h>
 #include <rclc/rclc.h>
-#include <sensor_msgs/msg/laser_scan.h>
 #include <sensor_msgs/msg/imu.h>
+#include <sensor_msgs/msg/laser_scan.h>
 #include <std_msgs/msg/bool.h>
+
 
 // ===== micro-ROS GLOBAL =====
 rcl_allocator_t allocator;
@@ -34,11 +35,31 @@ sensor_msgs__msg__Imu imu_msg;
 #define ENCODER_RIGHT_PIN 34
 #define SSID "Pile AA"
 #define PASS "3011906andy"
-#define AGENT_IP  "192.168.137.205"
+#define AGENT_IP "192.168.137.205"
 #define AGENT_PORT 8888
 
 void IRAM_ATTR encoderLeftISR() { onEncoderLeftPulse(); }
 void IRAM_ATTR encoderRightISR() { onEncoderRightPulse(); }
+
+// ===== TEST MOTEURS AU DÉMARRAGE =====
+void testMotorsStartup() {
+  Serial.println("[TEST] Motors: FORWARD 1s...");
+  channelBCtrl(200); // Gauche avance
+  channelACtrl(200); // Droite avance
+  delay(1000);
+
+  stopMotors();
+  delay(300);
+
+  Serial.println("[TEST] Motors: BACKWARD 1s...");
+  channelBCtrl(-200); // Gauche recule
+  channelACtrl(-200); // Droite recule
+  delay(1000);
+
+  stopMotors();
+  delay(300);
+  Serial.println("[TEST] Motors: DONE");
+}
 
 void setup() {
 
@@ -55,29 +76,21 @@ void setup() {
 
   // Publishers
   rclc_publisher_init_default(
-    &scan_pub,
-    &node,
-    ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, LaserScan),
-    "/scan"
-  );
+      &scan_pub, &node,
+      ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, LaserScan), "/scan");
+
+  rclc_publisher_init_default(&obstacle_pub, &node,
+                              ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Bool),
+                              "/obstacle");
 
   rclc_publisher_init_default(
-    &obstacle_pub,
-    &node,
-    ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Bool),
-    "/obstacle"
-  );
-
-  rclc_publisher_init_default(
-    &imu_pub,
-    &node,
-    ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu),
-    "/imu"
-  );
+      &imu_pub, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu),
+      "/imu");
 
   initLidar();
   imuInit();
   initMotors();
+  testMotorsStartup(); // Test moteurs : avancer 1s, reculer 1s
   initSpeedEstimator();
 
   Wire.begin(I2C_SDA, I2C_SCL);
@@ -85,8 +98,10 @@ void setup() {
 
   pinMode(ENCODER_LEFT_PIN, INPUT_PULLUP);
   pinMode(ENCODER_RIGHT_PIN, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(ENCODER_LEFT_PIN), encoderLeftISR, RISING);
-  attachInterrupt(digitalPinToInterrupt(ENCODER_RIGHT_PIN), encoderRightISR, RISING);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_LEFT_PIN), encoderLeftISR,
+                  RISING);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_RIGHT_PIN), encoderRightISR,
+                  RISING);
 
   ctrlMutex = xSemaphoreCreateMutex();
   lidarMutex = xSemaphoreCreateMutex();
@@ -96,15 +111,14 @@ void setup() {
 
   // Tasks capteurs uniquement
   xTaskCreatePinnedToCore(lidarTask, "LidarTask", 4096, NULL, 5, NULL, 1);
-  xTaskCreatePinnedToCore(microRosLidarTask, "microRosLidarTask", 24000, NULL, 5, NULL, 1);
+  xTaskCreatePinnedToCore(microRosLidarTask, "microRosLidarTask", 8192, NULL, 5,
+                          NULL, 1);
   xTaskCreatePinnedToCore(imuTask, "ImuTask", 8192, NULL, 4, NULL, 0);
   xTaskCreatePinnedToCore(motorControlTask, "Motors", 4096, NULL, 3, NULL, 1);
-  xTaskCreatePinnedToCore(naiveNavigationTask, "NavNaive", 4096, NULL, 3, NULL, 1);
-
+  xTaskCreatePinnedToCore(naiveNavigationTask, "NavNaive", 4096, NULL, 3, NULL,
+                          1);
 
   Serial.println("=== SYSTEM READY ===");
 }
 
-void loop() {
-  vTaskDelay(100);
-}
+void loop() { vTaskDelay(100); }

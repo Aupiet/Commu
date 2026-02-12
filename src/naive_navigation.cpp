@@ -109,33 +109,40 @@ float computeNaiveHeading() {
   float bestAngle = NAV_NO_PATH;
   uint16_t bestDist = 0;
 
-  // Scanner le cône avant : de +HALF_ANGLE (gauche) à -HALF_ANGLE (droite)
-  // On scanne en partant de la GAUCHE pour que en cas d'égalité,
-  // la gauche soit naturellement choisie (premier trouvé = gardé avec >=)
   int halfAngle = (int)NAV_FORWARD_HALF_ANGLE;
 
-  for (int offset = halfAngle; offset >= -halfAngle; offset--) {
-    // Convertir en index 0-359 dans la distMap
-    // offset > 0 = gauche (anti-horaire), offset < 0 = droite (horaire)
-    int mapIndex = offset;
-    if (mapIndex < 0)
-      mapIndex += 360;
+  // Scanner depuis le CENTRE (0°) vers l'extérieur en alternant gauche/droite
+  // Cela élimine le biais systématique vers la gauche
+  for (int step = 0; step <= halfAngle; step++) {
+    // Pour chaque step, on teste d'abord 0, puis +1/-1, +2/-2, etc.
+    int sides = (step == 0) ? 1 : 2;
+    for (int s = 0; s < sides; s++) {
+      int offset = (s == 0) ? step : -step;
 
-    uint16_t dist = distMap[mapIndex];
+      int mapIndex = offset;
+      if (mapIndex < 0)
+        mapIndex += 360;
 
-    // Ignorer si trop proche
-    if (dist < NAV_MIN_RANGE_MM)
-      continue;
+      uint16_t dist = distMap[mapIndex];
 
-    // Vérifier la clearance latérale (le robot passe-t-il ?)
-    if (!hasLateralClearance(mapIndex))
-      continue;
+      if (dist < NAV_MIN_RANGE_MM)
+        continue;
 
-    // Sélectionner le point le plus ÉLOIGNÉ
-    // En cas d'égalité (>=), on garde le premier trouvé = le plus à GAUCHE
-    if (dist >= bestDist) {
-      bestDist = dist;
-      bestAngle = (float)offset;
+      if (!hasLateralClearance(mapIndex))
+        continue;
+
+      // Sélectionner la direction la plus éloignée,
+      // mais préférer les angles proches de 0° (tout droit)
+      if (dist > bestDist) {
+        bestDist = dist;
+        bestAngle = (float)offset;
+      }
+
+      // Si la distance est "assez bonne" (> 1.5m), prendre immédiatement
+      // la première direction viable (la plus proche de tout droit)
+      if (dist > 1500) {
+        return (float)offset;
+      }
     }
   }
 
@@ -145,6 +152,10 @@ float computeNaiveHeading() {
 // ============================================================
 //  Tâche FreeRTOS
 // ============================================================
+
+// Seuil minimum PWM pour que les moteurs tournent réellement
+#define NAV_MIN_PWM 70
+
 void naiveNavigationTask(void *pvParameters) {
   // Attendre que le système soit stable
   vTaskDelay(pdMS_TO_TICKS(2000));
@@ -172,10 +183,9 @@ void naiveNavigationTask(void *pvParameters) {
       rightPWM = NAV_FORWARD_SPEED;
     } else {
       // ===== CORRECTION PROPORTIONNELLE =====
-      // heading > 0 → tourner à gauche (ralentir roue gauche)
-      // heading < 0 → tourner à droite (ralentir roue droite)
       float correction = heading * NAV_ANGLE_GAIN;
-      correction = constrain(correction, -NAV_FORWARD_SPEED, NAV_FORWARD_SPEED);
+      correction = constrain(correction, -(float)NAV_FORWARD_SPEED,
+                             (float)NAV_FORWARD_SPEED);
 
       leftPWM = (int)(NAV_FORWARD_SPEED - correction);
       rightPWM = (int)(NAV_FORWARD_SPEED + correction);
@@ -184,6 +194,17 @@ void naiveNavigationTask(void *pvParameters) {
       leftPWM = constrain(leftPWM, -255, 255);
       rightPWM = constrain(rightPWM, -255, 255);
     }
+
+    // Appliquer le seuil MIN_PWM : si un moteur a une commande non-nulle
+    // mais en dessous du seuil, forcer au minimum pour qu'il tourne
+    if (leftPWM > 0 && leftPWM < NAV_MIN_PWM)
+      leftPWM = NAV_MIN_PWM;
+    if (leftPWM < 0 && leftPWM > -NAV_MIN_PWM)
+      leftPWM = -NAV_MIN_PWM;
+    if (rightPWM > 0 && rightPWM < NAV_MIN_PWM)
+      rightPWM = NAV_MIN_PWM;
+    if (rightPWM < 0 && rightPWM > -NAV_MIN_PWM)
+      rightPWM = -NAV_MIN_PWM;
 
     // Écrire la commande moteur (protégé par mutex)
     if (xSemaphoreTake(ctrlMutex, pdMS_TO_TICKS(5)) == pdTRUE) {

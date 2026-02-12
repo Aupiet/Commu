@@ -20,9 +20,9 @@
 
 // --- Comportement ---
 #define NAV_FORWARD_HALF_ANGLE 45.0f // Demi-cône de recherche avant (±45°)
-#define NAV_FORWARD_SPEED 150        // PWM d'avance (0-255)
-#define NAV_TURN_SPEED 120           // PWM de rotation sur place
-#define NAV_ANGLE_GAIN 3.0f    // Gain proportionnel angle → correction moteur
+#define NAV_FORWARD_SPEED 200        // PWM d'avance (0-255)
+#define NAV_TURN_SPEED 180           // PWM de rotation sur place
+#define NAV_ANGLE_GAIN 1.5f    // Gain proportionnel angle → correction moteur
 #define NAV_TASK_PERIOD_MS 100 // Période de la boucle (10 Hz)
 
 // --- Sentinel ---
