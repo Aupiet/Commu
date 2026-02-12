@@ -42,8 +42,7 @@ extern rcl_allocator_t uros_allocator;
 extern volatile bool microRosReady;
 
 void imuInit() {
-  Wire.begin(I2C_SDA, I2C_SCL);
-  Wire.setClock(400000);
+  // Wire.begin() est appelé dans imuTask() (même core)
 
   if (qmi8658_.begin() == 0)
     Serial.println("qmi8658_init fail");
@@ -234,7 +233,18 @@ void calibrateMagn(void) {
 
 void imuTask(void *pvParameters) {
 
-  Serial.println("[uROS-IMU] Task started, waiting for microRosReady...");
+  Serial.println("[uROS-IMU] Task started, init I2C on this core...");
+
+  // Init I2C sur le même core que la tâche
+  Wire.begin(I2C_SDA, I2C_SCL);
+  Wire.setClock(400000);
+  Serial.println("[uROS-IMU] Wire OK");
+
+  // Init capteurs IMU
+  imuInit();
+  Serial.println("[uROS-IMU] IMU sensors initialized");
+
+  Serial.println("[uROS-IMU] Waiting for microRosReady...");
 
   // Attendre que microRosLidarTask ait fini l'init micro-ROS
   while (!microRosReady) {
