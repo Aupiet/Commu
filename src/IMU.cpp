@@ -28,6 +28,9 @@ double declination_shenzhen = -3.22;
 
 float q0, q1, q2, q3; 
 
+extern sensor_msgs__msg__Imu imu_msg;
+extern rcl_publisher_t imu_pub;
+
 void imuInit()
 {
     if (qmi8658_.begin() == 0)
@@ -195,22 +198,7 @@ void calibrateMagn(void)
 }
 
 void imuTask(void *pvParameters) {
-    rcl_allocator_t allocator = rcl_get_default_allocator();
-    rclc_support_t support;
-    rclc_support_init(&support, 0, NULL, &allocator);
 
-    rcl_node_t imu_node;
-    rclc_node_init_default(&imu_node, "esp32_imu_node", "", &support);
-
-    rcl_publisher_t imu_pub;
-    rclc_publisher_init_default(
-        &imu_pub,
-        &imu_node,
-        ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu),
-        "/imu"
-    );
-
-    sensor_msgs__msg__Imu imu_msg;
     imu_msg.header.frame_id.data = (char*)"imu_link";
     imu_msg.header.frame_id.size = strlen("imu_link");
     imu_msg.header.frame_id.capacity = imu_msg.header.frame_id.size + 1;

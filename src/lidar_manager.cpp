@@ -12,14 +12,10 @@
 HardwareSerial lidarSerial(1);
 
 // ===== micro-ROS =====
-static rcl_publisher_t scan_pub;
-static rcl_publisher_t obstacle_pub;
-static sensor_msgs__msg__LaserScan scan_msg;
-static std_msgs__msg__Bool obstacle_msg;
-
-static rcl_node_t node;
-static rclc_support_t support;
-static rcl_allocator_t allocator;
+extern rcl_publisher_t scan_pub;
+extern rcl_publisher_t obstacle_pub;
+extern sensor_msgs__msg__LaserScan scan_msg;
+extern std_msgs__msg__Bool obstacle_msg;
 
 // ===== PARAMÈTRES =====
 #define DIST_STOP_MM 350
@@ -113,22 +109,6 @@ void lidarTask(void *pv) {
 void microRosLidarTask(void *pv) {
 
   rclc_executor_t executor;
-  allocator = rcl_get_default_allocator();
-  rclc_support_init(&support, 0, NULL, &allocator);
-  rclc_node_init_default(&node, "esp32_lidar", "", &support);
-  rclc_executor_init(&executor, &support.context, 0, &allocator);
-
-  rclc_publisher_init_default(
-    &scan_pub, &node,
-    ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, LaserScan),
-    "/scan"
-  );
-
-  rclc_publisher_init_default(
-    &obstacle_pub, &node,
-    ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Bool),
-    "/obstacle"
-  );
 
   scan_msg.header.frame_id.data = (char *)"laser";
   scan_msg.header.frame_id.size = strlen("laser");
