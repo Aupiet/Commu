@@ -6,6 +6,7 @@
 #include <rcl/rcl.h>
 #include <rclc/executor.h>
 #include <rclc/rclc.h>
+#include <sensor_msgs/msg/imu.h>
 #include <sensor_msgs/msg/laser_scan.h>
 #include <std_msgs/msg/bool.h>
 
@@ -18,6 +19,8 @@ static sensor_msgs__msg__LaserScan scan_msg;
 static std_msgs__msg__Bool obstacle_msg;
 
 // Partagés avec imuTask (non-static)
+rcl_publisher_t imu_pub;
+sensor_msgs__msg__Imu imu_msg;
 rcl_node_t uros_node;
 rclc_support_t uros_support;
 rcl_allocator_t uros_allocator;
@@ -168,6 +171,12 @@ void microRosLidarTask(void *pv) {
                               ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Bool),
                               "/obstacle");
   Serial.println("[uROS-LIDAR] obstacle_pub OK");
+
+  Serial.println("[uROS-LIDAR] Creating imu publisher...");
+  rclc_publisher_init_default(
+      &imu_pub, &uros_node, ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu),
+      "/imu");
+  Serial.println("[uROS-LIDAR] imu_pub OK");
 
   // Signaler que micro-ROS est prêt (pour imuTask)
   microRosReady = true;

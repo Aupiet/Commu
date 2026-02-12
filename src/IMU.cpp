@@ -31,14 +31,9 @@ double declination_shenzhen = -3.22;
 
 float q0, q1, q2, q3;
 
-// micro-ROS IMU (publisher local, node partagé avec lidar)
-static rcl_publisher_t imu_pub;
-static sensor_msgs__msg__Imu imu_msg;
-
-// Partagés depuis lidar_manager.cpp
-extern rcl_node_t uros_node;
-extern rclc_support_t uros_support;
-extern rcl_allocator_t uros_allocator;
+// micro-ROS IMU (créés dans microRosLidarTask, lidar_manager.cpp)
+extern rcl_publisher_t imu_pub;
+extern sensor_msgs__msg__Imu imu_msg;
 extern volatile bool microRosReady;
 
 void imuInit() {
@@ -251,13 +246,6 @@ void imuTask(void *pvParameters) {
     vTaskDelay(pdMS_TO_TICKS(500));
   }
   Serial.println("[uROS-IMU] microRosReady detected!");
-
-  // Créer le publisher IMU sur le node partagé
-  Serial.println("[uROS-IMU] Creating imu publisher on shared node...");
-  rclc_publisher_init_default(
-      &imu_pub, &uros_node, ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu),
-      "/imu");
-  Serial.println("[uROS-IMU] imu_pub OK");
 
   imu_msg.header.frame_id.data = (char *)"imu_link";
   imu_msg.header.frame_id.size = strlen("imu_link");
