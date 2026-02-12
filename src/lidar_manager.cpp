@@ -9,7 +9,6 @@
 #include <sensor_msgs/msg/laser_scan.h>
 #include <std_msgs/msg/bool.h>
 
-
 HardwareSerial lidarSerial(1);
 
 // ===== micro-ROS =====
@@ -120,19 +119,53 @@ void lidarTask(void *pv) {
 // ===== TÂCHE micro-ROS (SOFT REALTIME) =====
 void microRosLidarTask(void *pv) {
 
+  Serial.println("[uROS-LIDAR] Task started, waiting 2s...");
+  vTaskDelay(pdMS_TO_TICKS(2000));
+
   rclc_executor_t executor;
   allocator = rcl_get_default_allocator();
-  rclc_support_init(&support, 0, NULL, &allocator);
-  rclc_node_init_default(&node, "esp32_lidar", "", &support);
-  rclc_executor_init(&executor, &support.context, 0, &allocator);
 
+  // Retry loop pour rclc_support_init (attend que l'agent soit joignable)
+  Serial.println("[uROS-LIDAR] Calling rclc_support_init...");
+  rcl_ret_t ret;
+  int attempts = 0;
+  do {
+    ret = rclc_support_init(&support, 0, NULL, &allocator);
+    if (ret != RCL_RET_OK) {
+      attempts++;
+      Serial.printf("[uROS-LIDAR] support_init FAILED (ret=%d), attempt %d, "
+                    "retrying in 2s...\n",
+                    (int)ret, attempts);
+      vTaskDelay(pdMS_TO_TICKS(2000));
+    }
+  } while (ret != RCL_RET_OK && attempts < 30);
+
+  if (ret != RCL_RET_OK) {
+    Serial.println("[uROS-LIDAR] ABANDON: agent unreachable after 60s");
+    vTaskDelete(NULL);
+    return;
+  }
+  Serial.println("[uROS-LIDAR] support_init OK");
+
+  Serial.println("[uROS-LIDAR] Creating node...");
+  rclc_node_init_default(&node, "esp32_lidar", "", &support);
+  Serial.println("[uROS-LIDAR] Node OK");
+
+  Serial.println("[uROS-LIDAR] Creating executor...");
+  rclc_executor_init(&executor, &support.context, 0, &allocator);
+  Serial.println("[uROS-LIDAR] Executor OK");
+
+  Serial.println("[uROS-LIDAR] Creating scan publisher...");
   rclc_publisher_init_default(
       &scan_pub, &node,
       ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, LaserScan), "/scan");
+  Serial.println("[uROS-LIDAR] scan_pub OK");
 
+  Serial.println("[uROS-LIDAR] Creating obstacle publisher...");
   rclc_publisher_init_default(&obstacle_pub, &node,
                               ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Bool),
                               "/obstacle");
+  Serial.println("[uROS-LIDAR] obstacle_pub OK");
 
   scan_msg.header.frame_id.data = (char *)"laser";
   scan_msg.header.frame_id.size = strlen("laser");
@@ -148,6 +181,8 @@ void microRosLidarTask(void *pv) {
   scan_msg.angle_increment = (2 * M_PI) / 360.0f;
   scan_msg.range_min = 0.05f;
   scan_msg.range_max = 12.0f;
+
+  Serial.println("[uROS-LIDAR] Init complete, entering publish loop");
 
   while (true) {
 
@@ -165,7 +200,6 @@ void microRosLidarTask(void *pv) {
     }
 
     obstacle_msg.data = obstacleDetected;
-    // rclc_executor_spin_some(&executor, RCL_MS_TO_NS(10));
 
     scan_msg.header.stamp.sec = rmw_uros_epoch_millis() / 1000;
     scan_msg.header.stamp.nanosec = (rmw_uros_epoch_millis() % 1000) * 1000000;

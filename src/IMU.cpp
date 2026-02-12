@@ -1,4 +1,6 @@
 #include "IMU.h"
+#include "config.h"
+#include <Wire.h>
 #include <micro_ros_arduino.h>
 #include <rcl/rcl.h>
 #include <rclc/rclc.h>
@@ -33,6 +35,9 @@ extern sensor_msgs__msg__Imu imu_msg;
 extern rcl_publisher_t imu_pub;
 
 void imuInit() {
+  Wire.begin(I2C_SDA, I2C_SCL);
+  Wire.setClock(400000);
+
   if (qmi8658_.begin() == 0)
     Serial.println("qmi8658_init fail");
 
@@ -246,9 +251,7 @@ void imuTask(void *pvParameters) {
     imu_msg.linear_acceleration.y = stAccelRawData.Y;
     imu_msg.linear_acceleration.z = stAccelRawData.Z;
 
-    if (microRosConnected) {
-      rcl_publish(&imu_pub, &imu_msg, NULL);
-    }
+    rcl_publish(&imu_pub, &imu_msg, NULL);
     vTaskDelay(pdMS_TO_TICKS(50)); // 20 Hz
   }
 }
