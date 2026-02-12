@@ -160,8 +160,8 @@ void microRosLidarTask(void *pv) {
   rclc_executor_init(&executor, &uros_support.context, 0, &uros_allocator);
   Serial.println("[uROS-LIDAR] Executor OK");
 
-  Serial.println("[uROS-LIDAR] Creating scan publisher...");
-  rclc_publisher_init_default(
+  Serial.println("[uROS-LIDAR] Creating scan publisher (best effort)...");
+  rclc_publisher_init_best_effort(
       &scan_pub, &uros_node,
       ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, LaserScan), "/scan");
   Serial.println("[uROS-LIDAR] scan_pub OK");
@@ -172,8 +172,8 @@ void microRosLidarTask(void *pv) {
                               "/obstacle");
   Serial.println("[uROS-LIDAR] obstacle_pub OK");
 
-  Serial.println("[uROS-LIDAR] Creating imu publisher...");
-  rclc_publisher_init_default(
+  Serial.println("[uROS-LIDAR] Creating imu publisher (best effort)...");
+  rclc_publisher_init_best_effort(
       &imu_pub, &uros_node, ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu),
       "/imu");
   Serial.println("[uROS-LIDAR] imu_pub OK");

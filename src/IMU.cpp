@@ -247,9 +247,17 @@ void imuTask(void *pvParameters) {
   }
   Serial.println("[uROS-IMU] microRosReady detected!");
 
+  // Zero-init du message IMU
+  memset(&imu_msg, 0, sizeof(imu_msg));
+
   imu_msg.header.frame_id.data = (char *)"imu_link";
   imu_msg.header.frame_id.size = strlen("imu_link");
   imu_msg.header.frame_id.capacity = imu_msg.header.frame_id.size + 1;
+
+  // Covariances inconnues (convention ROS: -1 en [0])
+  imu_msg.orientation_covariance[0] = -1.0;
+  imu_msg.angular_velocity_covariance[0] = -1.0;
+  imu_msg.linear_acceleration_covariance[0] = -1.0;
 
   Serial.println("[uROS-IMU] Init complete, entering publish loop");
 
