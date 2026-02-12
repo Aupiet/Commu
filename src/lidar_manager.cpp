@@ -4,10 +4,14 @@
 
 #include <micro_ros_arduino.h>
 #include <rcl/rcl.h>
+#include <rclc/executor.h>
 #include <rclc/rclc.h>
 #include <sensor_msgs/msg/laser_scan.h>
 #include <std_msgs/msg/bool.h>
-#include <rclc/executor.h>
+
+
+// Flag micro-ROS
+extern volatile bool microRosConnected;
 
 HardwareSerial lidarSerial(1);
 
@@ -28,7 +32,8 @@ void initLidar() {
   Serial.println("LiDAR initialized");
 }
 
-static inline void polarToCartesian(float a_deg, uint16_t d_mm, float &x, float &y) {
+static inline void polarToCartesian(float a_deg, uint16_t d_mm, float &x,
+                                    float &y) {
   float a = a_deg * 0.0174532925f;
   float m = d_mm * 0.001f;
   x = sinf(a) * m;
@@ -43,12 +48,15 @@ void lidarTask(void *pv) {
   while (true) {
     if (lidarSerial.available() && lidarSerial.read() == 0x54) {
 
-      if (lidarSerial.readBytes(buf, PACKET_SIZE - 1) != PACKET_SIZE - 1) continue;
-      if (buf[0] != 0x2C) continue;
+      if (lidarSerial.readBytes(buf, PACKET_SIZE - 1) != PACKET_SIZE - 1)
+        continue;
+      if (buf[0] != 0x2C)
+        continue;
 
       float start = (buf[3] | (buf[4] << 8)) / 100.0f;
-      float end   = (buf[41] | (buf[42] << 8)) / 100.0f;
-      if (end < start) end += 360.0f;
+      float end = (buf[41] | (buf[42] << 8)) / 100.0f;
+      if (end < start)
+        end += 360.0f;
 
       float step = (end - start) / (MEAS_PER_PACKET - 1);
 
@@ -62,10 +70,12 @@ void lidarTask(void *pv) {
           uint16_t dist = buf[b] | (buf[b + 1] << 8);
           uint8_t conf = buf[b + 2];
 
-          if (conf < 100 || dist == 0 || dist > 12000) continue;
+          if (conf < 100 || dist == 0 || dist > 12000)
+            continue;
 
           float ang = start + step * i;
-          if (ang >= 360) ang -= 360;
+          if (ang >= 360)
+            ang -= 360;
 
           LidarPoint p;
           p.angle = ang;
@@ -76,7 +86,8 @@ void lidarTask(void *pv) {
 
           pointBuffer[pointWriteIndex] = p;
           pointWriteIndex = (pointWriteIndex + 1) % POINT_BUFFER_SIZE;
-          if (pointsAvailable < POINT_BUFFER_SIZE) pointsAvailable++;
+          if (pointsAvailable < POINT_BUFFER_SIZE)
+            pointsAvailable++;
 
           bool inFront = (ang >= FRONT_ANGLE_MIN || ang <= FRONT_ANGLE_MAX);
           if (inFront && dist < DIST_STOP_MM) {
@@ -117,7 +128,7 @@ void microRosLidarTask(void *pv) {
   // Préallocation LaserScan
   scan_msg.ranges.capacity = 360;
   scan_msg.ranges.size = 360;
-  scan_msg.ranges.data = (float*)malloc(360 * sizeof(float));
+  scan_msg.ranges.data = (float *)malloc(360 * sizeof(float));
 
   scan_msg.angle_min = 0.0f;
   scan_msg.angle_max = 2 * M_PI;
@@ -141,14 +152,20 @@ void microRosLidarTask(void *pv) {
     }
 
     obstacle_msg.data = obstacleDetected;
-    //rclc_executor_spin_some(&executor, RCL_MS_TO_NS(10));
+    // rclc_executor_spin_some(&executor, RCL_MS_TO_NS(10));
 
     scan_msg.header.stamp.sec = rmw_uros_epoch_millis() / 1000;
     scan_msg.header.stamp.nanosec = (rmw_uros_epoch_millis() % 1000) * 1000000;
 
-    rcl_publish(&scan_pub, &scan_msg, NULL);
-    rcl_publish(&obstacle_pub, &obstacle_msg, NULL);
+    if (microRosConnected) {
+      rcl_ret_t ret1 = rcl_publish(&scan_pub, &scan_msg, NULL);
+      rcl_ret_t ret2 = rcl_publish(&obstacle_pub, &obstacle_msg, NULL);
+      if (ret1 != RCL_RET_OK || ret2 != RCL_RET_OK) {
+        Serial.printf("[uROS] Publish fail: scan=%d obs=%d\n", (int)ret1,
+                      (int)ret2);
+      }
+    }
 
-    vTaskDelay(pdMS_TO_TICKS(50)); // 20 Hz
+    vTaskDelay(pdMS_TO_TICKS(100)); // 10 Hz (réduit pour moins de charge)
   }
 }
