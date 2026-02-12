@@ -187,13 +187,14 @@ void microRosLidarTask(void *pv) {
   scan_msg.header.frame_id.capacity = scan_msg.header.frame_id.size + 1;
 
   // Préallocation LaserScan
-  scan_msg.ranges.capacity = 360;
-  scan_msg.ranges.size = 360;
-  scan_msg.ranges.data = (float *)malloc(360 * sizeof(float));
+  // Préallocation LaserScan (baisse résolution à 180 points)
+  scan_msg.ranges.capacity = 180;
+  scan_msg.ranges.size = 180;
+  scan_msg.ranges.data = (float *)malloc(180 * sizeof(float));
 
   scan_msg.angle_min = 0.0f;
   scan_msg.angle_max = 2 * M_PI;
-  scan_msg.angle_increment = (2 * M_PI) / 360.0f;
+  scan_msg.angle_increment = (2 * M_PI) / 180.0f;
   scan_msg.range_min = 0.05f;
   scan_msg.range_max = 12.0f;
 
@@ -201,15 +202,23 @@ void microRosLidarTask(void *pv) {
 
   while (true) {
 
-    for (int i = 0; i < 360; i++)
+    for (int i = 0; i < 180; i++)
       scan_msg.ranges.data[i] = INFINITY;
 
     if (xSemaphoreTake(bufferMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+      // Envoi de 180 points seulement (1 degré sur 2) pour réduire la charge
       for (int i = 0; i < pointsAvailable; i++) {
         int idx = (pointWriteIndex - i + POINT_BUFFER_SIZE) % POINT_BUFFER_SIZE;
         int a = (int)pointBuffer[idx].angle;
-        if (a >= 0 && a < 360)
-          scan_msg.ranges.data[a] = pointBuffer[idx].distance * 0.001f;
+
+        // On ne garde que les angles pairs ou une décimation simple
+        if (a >= 0 && a < 360 && (a % 2 == 0)) {
+          // On mappe l'angle 0..359 vers 0..179
+          int scanIdx = a / 2;
+          if (scanIdx < 180) {
+            scan_msg.ranges.data[scanIdx] = pointBuffer[idx].distance * 0.001f;
+          }
+        }
       }
       xSemaphoreGive(bufferMutex);
     }
