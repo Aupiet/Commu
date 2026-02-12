@@ -222,6 +222,9 @@ void microRosLidarTask(void *pv) {
     rcl_publish(&scan_pub, &scan_msg, NULL);
     rcl_publish(&obstacle_pub, &obstacle_msg, NULL);
 
+    // Maintenir la session micro-ROS active (heartbeat)
+    rclc_executor_spin_some(&executor, RCL_MS_TO_NS(10));
+
     vTaskDelay(pdMS_TO_TICKS(50)); // 20 Hz
   }
 }

@@ -1,10 +1,11 @@
+#include "IMU.h"
 #include "config.h"
 #include "globals.h"
 #include "lidar_manager.h"
 #include "motor_control.h"
-// #include "naive_navigation.h"   // COMMENTÉ pour debug LIDAR
-#include "IMU.h" // COMMENTÉ pour debug LIDAR
-// #include "speed_estimator.h"    // COMMENTÉ pour debug LIDAR
+#include "naive_navigation.h"
+#include "speed_estimator.h"
+
 
 #include <Arduino.h>
 #include <micro_ros_arduino.h>
@@ -67,19 +68,17 @@ void setup() {
 
   Serial.printf("[MEM] Free heap before tasks: %u bytes\n", ESP.getFreeHeap());
 
-  // ===== TÂCHES LIDAR UNIQUEMENT =====
+  // ===== TÂCHES =====
   xTaskCreatePinnedToCore(lidarTask, "LidarTask", 4096, NULL, 5, NULL, 1);
   xTaskCreatePinnedToCore(microRosLidarTask, "uRosLidar", 24000, NULL, 5, NULL,
                           1);
-
-  // ===== COMMENTÉ POUR DEBUG LIDAR =====
   xTaskCreatePinnedToCore(imuTask, "ImuTask", 8192, NULL, 4, NULL, 0);
-  // xTaskCreatePinnedToCore(motorControlTask, "Motors", 4096, NULL, 3, NULL,
-  // 1); xTaskCreatePinnedToCore(naiveNavigationTask, "NavNaive", 4096, NULL, 3,
-  // NULL, 1);
+  xTaskCreatePinnedToCore(motorControlTask, "Motors", 4096, NULL, 3, NULL, 1);
+  xTaskCreatePinnedToCore(naiveNavigationTask, "NavNaive", 4096, NULL, 3, NULL,
+                          1);
 
   Serial.printf("[MEM] Free heap after tasks: %u bytes\n", ESP.getFreeHeap());
-  Serial.println("=== SYSTEM READY (LIDAR ONLY MODE) ===");
+  Serial.println("=== SYSTEM READY ===");
 }
 
 void loop() {
