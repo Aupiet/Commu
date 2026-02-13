@@ -13,7 +13,6 @@ static uint16_t distMap[360];
 //  Construction de la carte depuis le pointBuffer
 // ============================================================
 static void buildDistMap() {
-  // Init : tout à max range (= pas d'obstacle connu)
   for (int i = 0; i < 360; i++) {
     distMap[i] = NAV_MAX_RANGE_MM;
   }
@@ -26,11 +25,8 @@ static void buildDistMap() {
           (pointWriteIndex - 1 - i + POINT_BUFFER_SIZE) % POINT_BUFFER_SIZE;
       LidarPoint &p = pointBuffer[idx];
 
-      // Ignorer les points trop vieux (> 500ms)
       if (now - p.ts > 500)
         continue;
-
-      // Filtres qualité
       if (p.distance < NAV_MIN_RANGE_MM || p.distance > NAV_MAX_RANGE_MM)
         continue;
       if (p.confidence < 100)
@@ -42,7 +38,6 @@ static void buildDistMap() {
       if (a >= 360)
         a -= 360;
 
-      // Garder la distance MINIMALE (obstacle le plus proche)
       if (p.distance < distMap[a]) {
         distMap[a] = p.distance;
       }
@@ -52,45 +47,58 @@ static void buildDistMap() {
 }
 
 // ============================================================
-//  Vérification clearance latérale pour un angle donné
-//  Le robot a une certaine largeur : on vérifie que les côtés
-//  sont aussi dégagés pour qu'il puisse passer.
+//  Vérification clearance latérale
+//
+//  Pour un angle donné, on vérifie que les angles adjacents
+//  (± quelques degrés) n'ont pas d'obstacles trop proches.
+//  On calcule la distance perpendiculaire entre la trajectoire
+//  robot et l'obstacle latéral. Si cette distance > demi-largeur
+//  robot → OK.
 // ============================================================
-static bool hasLateralClearance(int angleDeg) {
+static bool hasLateralClearance(int angleDeg, uint16_t frontDist) {
   int a = angleDeg;
   if (a < 0)
     a += 360;
   if (a >= 360)
     a -= 360;
 
-  uint16_t frontDist = distMap[a];
-  if (frontDist < NAV_MIN_RANGE_MM)
+  if (frontDist < NAV_STOP_DISTANCE_MM)
     return false;
 
-  // Angle sous-tendu par la demi-largeur du robot à cette distance
-  float halfWidth = NAV_MIN_PASSAGE_MM / 2.0f;
-  float lateralAngleDeg = atan2f(halfWidth, (float)frontDist) * (180.0f / M_PI);
+  float halfWidth = NAV_MIN_PASSAGE_MM / 2.0f; // 134 mm
 
-  int checkSpan = (int)ceilf(lateralAngleDeg);
-  if (checkSpan < 1)
-    checkSpan = 1;
+  // Vérifier les angles adjacents (±1° à ±15°)
+  // Pour chaque angle latéral, l'obstacle est à distMap[a±offset]
+  // La distance perpendiculaire = dist_laterale * sin(offset)
+  // Si dist_perp < halfWidth → le robot ne passe pas
+  int maxCheck = 15;
 
-  for (int offset = 1; offset <= checkSpan; offset++) {
+  for (int offset = 1; offset <= maxCheck; offset++) {
     int aLeft = (a + offset) % 360;
     int aRight = (a - offset + 360) % 360;
 
-    // Distance min nécessaire sur le côté
     float offsetRad = (float)offset * (M_PI / 180.0f);
     float sinVal = sinf(offsetRad);
-    if (sinVal < 0.01f)
-      continue;
 
-    float minSideDist = halfWidth / sinVal;
+    // Distance perpendiculaire de l'obstacle à la trajectoire
+    float perpLeft = (float)distMap[aLeft] * sinVal;
+    float perpRight = (float)distMap[aRight] * sinVal;
 
-    if (distMap[aLeft] < (uint16_t)minSideDist)
-      return false;
-    if (distMap[aRight] < (uint16_t)minSideDist)
-      return false;
+    // On ne vérifie que si l'obstacle est PLUS PROCHE que notre trajectoire
+    // (i.e. si l'obstacle est en travers de notre chemin)
+    float obstFrontLeft = (float)distMap[aLeft] * cosf(offsetRad);
+    float obstFrontRight = (float)distMap[aRight] * cosf(offsetRad);
+
+    // L'obstacle latéral n'est un problème que s'il est DEVANT nous
+    // (sa projection sur notre axe < notre distance de trajet)
+    if (obstFrontLeft > 0 && obstFrontLeft < (float)frontDist) {
+      if (perpLeft < halfWidth)
+        return false;
+    }
+    if (obstFrontRight > 0 && obstFrontRight < (float)frontDist) {
+      if (perpRight < halfWidth)
+        return false;
+    }
   }
 
   return true;
@@ -99,12 +107,11 @@ static bool hasLateralClearance(int angleDeg) {
 // ============================================================
 //  computeNaiveHeading — Algorithme principal
 //
-//  Règles :
 //  1. Chercher dans le cône avant (±NAV_FORWARD_HALF_ANGLE)
 //  2. Choisir la direction avec le point le plus ÉLOIGNÉ
-//  3. Si deux points sont à la même distance → préférer GAUCHE
-//  4. Vérifier la clearance latérale (largeur robot)
-//  5. Si aucun chemin viable → retourner NAV_NO_PATH
+//  3. Équidistance → préférer GAUCHE
+//  4. Vérifier clearance latérale (largeur robot)
+//  5. Si bloqué → NAV_NO_PATH
 // ============================================================
 float computeNaiveHeading() {
   buildDistMap();
@@ -114,11 +121,8 @@ float computeNaiveHeading() {
 
   int halfAngle = (int)NAV_FORWARD_HALF_ANGLE;
 
-  // Scanner depuis le centre vers l'extérieur
-  // Pour chaque step, tester GAUCHE d'abord (priorité gauche)
+  // Scanner du centre vers l'extérieur, GAUCHE d'abord
   for (int step = 0; step <= halfAngle; step++) {
-    // Angles à tester : 0, puis +1, -1, +2, -2, ...
-    // Mais avec priorité gauche : on teste +step AVANT -step
     int anglesToTest[2];
     int count;
 
@@ -133,32 +137,21 @@ float computeNaiveHeading() {
 
     for (int s = 0; s < count; s++) {
       int offset = anglesToTest[s];
-
       int mapIndex = offset;
       if (mapIndex < 0)
         mapIndex += 360;
 
       uint16_t dist = distMap[mapIndex];
 
-      // Filtrer les distances trop courtes
       if (dist < NAV_STOP_DISTANCE_MM)
         continue;
 
-      // Vérifier que le robot peut physiquement passer
-      if (!hasLateralClearance(mapIndex))
+      if (!hasLateralClearance(mapIndex, dist))
         continue;
 
-      // Sélectionner la direction la plus éloignée
-      // En cas d'égalité : la gauche gagne car testée en premier
       if (dist > bestDist) {
         bestDist = dist;
         bestAngle = (float)offset;
-      }
-
-      // Si distance > 1.5m et viable, prendre immédiatement
-      // (la plus proche de tout droit, grâce au scan centre→extérieur)
-      if (dist > 1500) {
-        return (float)offset;
       }
     }
   }
@@ -167,13 +160,10 @@ float computeNaiveHeading() {
 }
 
 // ============================================================
-//  Tâche FreeRTOS — Pilotage moteurs depuis le heading calculé
+//  Tâche FreeRTOS
 // ============================================================
-
-#define NAV_MIN_PWM 70 // Seuil minimum pour que les moteurs tournent
-
 void naiveNavigationTask(void *pvParameters) {
-  vTaskDelay(pdMS_TO_TICKS(3000)); // Attendre que le système soit stable
+  vTaskDelay(pdMS_TO_TICKS(3000));
   Serial.println("[NAV] Naive navigation task started");
 
   while (true) {
@@ -183,18 +173,16 @@ void naiveNavigationTask(void *pvParameters) {
     int rightPWM = 0;
 
     if (heading == NAV_NO_PATH) {
-      // ===== BLOQUÉ : rotation sur place à GAUCHE =====
+      // BLOQUÉ : rotation sur place à gauche
       leftPWM = -NAV_TURN_SPEED;
       rightPWM = NAV_TURN_SPEED;
-      Serial.println("[NAV] BLOCKED → turning left");
+      Serial.println("[NAV] BLOCKED -> turn left");
     } else if (fabsf(heading) < 3.0f) {
-      // ===== TOUT DROIT =====
+      // TOUT DROIT
       leftPWM = NAV_FORWARD_SPEED;
       rightPWM = NAV_FORWARD_SPEED;
     } else {
-      // ===== CORRECTION PROPORTIONNELLE =====
-      // heading > 0 → tourner à gauche (ralentir gauche)
-      // heading < 0 → tourner à droite (ralentir droite)
+      // CORRECTION PROPORTIONNELLE
       float correction = heading * NAV_ANGLE_GAIN;
       correction = constrain(correction, -(float)NAV_FORWARD_SPEED,
                              (float)NAV_FORWARD_SPEED);
@@ -204,17 +192,10 @@ void naiveNavigationTask(void *pvParameters) {
 
       leftPWM = constrain(leftPWM, -255, 255);
       rightPWM = constrain(rightPWM, -255, 255);
-    }
 
-    // Appliquer seuil MIN_PWM
-    if (leftPWM > 0 && leftPWM < NAV_MIN_PWM)
-      leftPWM = NAV_MIN_PWM;
-    if (leftPWM < 0 && leftPWM > -NAV_MIN_PWM)
-      leftPWM = -NAV_MIN_PWM;
-    if (rightPWM > 0 && rightPWM < NAV_MIN_PWM)
-      rightPWM = NAV_MIN_PWM;
-    if (rightPWM < 0 && rightPWM > -NAV_MIN_PWM)
-      rightPWM = -NAV_MIN_PWM;
+      Serial.printf("[NAV] heading=%.0f L=%d R=%d\n", heading, leftPWM,
+                    rightPWM);
+    }
 
     // Écrire la commande moteur
     if (xSemaphoreTake(ctrlMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
