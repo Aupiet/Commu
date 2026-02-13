@@ -173,10 +173,13 @@ void naiveNavigationTask(void *pvParameters) {
     int rightPWM = 0;
 
     if (heading == NAV_NO_PATH) {
-      // BLOQUÉ : rotation sur place à gauche
-      leftPWM = -NAV_TURN_SPEED;
-      rightPWM = NAV_TURN_SPEED;
-      Serial.println("[NAV] BLOCKED -> turn left");
+      // BLOQUÉ : rotation forcée à gauche pendant NAV_BLOCKED_TURN_MS
+      Serial.println("[NAV] BLOCKED -> forced left spin");
+      channelBCtrl(-255); // Gauche en arrière
+      channelACtrl(255);  // Droite en avant
+      vTaskDelay(pdMS_TO_TICKS(NAV_BLOCKED_TURN_MS));
+      stopMotors();
+      continue; // Reprendre l'analyse immédiatement
     } else if (fabsf(heading) < 3.0f) {
       // TOUT DROIT
       leftPWM = NAV_FORWARD_SPEED;

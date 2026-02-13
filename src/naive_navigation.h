@@ -21,8 +21,9 @@
 #define NAV_FORWARD_HALF_ANGLE 60.0f // Demi-cône de recherche avant (±60°)
 #define NAV_FORWARD_SPEED 180        // PWM d'avance (0-255)
 #define NAV_TURN_SPEED 160           // PWM de rotation sur place
-#define NAV_ANGLE_GAIN 2.0f    // Gain proportionnel angle → correction moteur
-#define NAV_TASK_PERIOD_MS 100 // Période de la boucle (10 Hz)
+#define NAV_ANGLE_GAIN 2.0f     // Gain proportionnel angle → correction moteur
+#define NAV_TASK_PERIOD_MS 100  // Période de la boucle (10 Hz)
+#define NAV_BLOCKED_TURN_MS 500 // Durée rotation bloqué (ms) — SUPERVARIABLE
 
 // --- Sentinel ---
 #define NAV_NO_PATH -999
