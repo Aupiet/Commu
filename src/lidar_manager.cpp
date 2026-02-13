@@ -9,13 +9,14 @@
 #include <sensor_msgs/msg/imu.h>
 #include <sensor_msgs/msg/laser_scan.h>
 
+
 HardwareSerial lidarSerial(1);
 
 // ===== micro-ROS =====
 static rcl_publisher_t scan_pub;
 static sensor_msgs__msg__LaserScan scan_msg;
 
-// Partagés avec imuTask (non-static)
+// Partagés avec imuTask
 rcl_publisher_t imu_pub;
 sensor_msgs__msg__Imu imu_msg;
 rcl_node_t uros_node;
@@ -23,9 +24,9 @@ rclc_support_t uros_support;
 rcl_allocator_t uros_allocator;
 volatile bool microRosReady = false;
 
-// ===== PARAMÈTRES OBSTACLE =====
-#define DIST_STOP_MM 400
-#define FRONT_CONE_HALF 40 // ±40° devant le robot
+// ===== PARAMÈTRES =====
+#define DIST_STOP_MM 350
+#define OBSTACLE_HOLD_MS 400
 
 // =====================
 
@@ -45,6 +46,7 @@ static inline void polarToCartesian(float a_deg, uint16_t d_mm, float &x,
 // ===== TÂCHE LiDAR TEMPS RÉEL =====
 void lidarTask(void *pv) {
   uint8_t buf[PACKET_SIZE];
+  unsigned long lastObstacleTime = 0;
 
   while (true) {
     if (lidarSerial.available() && lidarSerial.read() == 0x54) {
@@ -90,10 +92,7 @@ void lidarTask(void *pv) {
           if (pointsAvailable < POINT_BUFFER_SIZE)
             pointsAvailable++;
 
-          // Détection obstacle : cône frontal ±FRONT_CONE_HALF°
-          // L'angle 0° = devant le robot pour le LD06 (vérifier selon montage)
-          bool inFront =
-              (ang <= FRONT_CONE_HALF || ang >= (360 - FRONT_CONE_HALF));
+          bool inFront = (ang >= FRONT_ANGLE_MIN || ang <= FRONT_ANGLE_MAX);
           if (inFront && dist < DIST_STOP_MM) {
             obstacleLocal = true;
             minDist = min(minDist, dist);
@@ -106,8 +105,9 @@ void lidarTask(void *pv) {
         if (obstacleLocal) {
           obstacleDetected = true;
           minObstacleDistance = minDist;
-        } else {
-          // Relâcher dès que le paquet frontal ne voit plus d'obstacle
+          lastObstacleTime = millis();
+        } else if (obstacleDetected &&
+                   millis() - lastObstacleTime > OBSTACLE_HOLD_MS) {
           obstacleDetected = false;
           minObstacleDistance = 9999;
         }
@@ -128,7 +128,7 @@ void microRosLidarTask(void *pv) {
   rclc_executor_t executor;
   uros_allocator = rcl_get_default_allocator();
 
-  // Retry loop pour rclc_support_init
+  // Retry loop
   Serial.println("[uROS] Calling rclc_support_init...");
   rcl_ret_t ret;
   int attempts = 0;
@@ -136,37 +136,31 @@ void microRosLidarTask(void *pv) {
     ret = rclc_support_init(&uros_support, 0, NULL, &uros_allocator);
     if (ret != RCL_RET_OK) {
       attempts++;
-      Serial.printf(
-          "[uROS] support_init FAILED (ret=%d), attempt %d, retrying...\n",
-          (int)ret, attempts);
+      Serial.printf("[uROS] support_init FAILED (ret=%d), attempt %d\n",
+                    (int)ret, attempts);
       vTaskDelay(pdMS_TO_TICKS(2000));
     }
   } while (ret != RCL_RET_OK && attempts < 30);
 
   if (ret != RCL_RET_OK) {
-    Serial.println("[uROS] ABANDON: agent unreachable after 60s");
+    Serial.println("[uROS] ABANDON: agent unreachable");
     vTaskDelete(NULL);
     return;
   }
   Serial.println("[uROS] support_init OK");
 
-  Serial.println("[uROS] Creating node...");
   rclc_node_init_default(&uros_node, "esp32_node", "", &uros_support);
   Serial.println("[uROS] Node OK");
 
-  Serial.println("[uROS] Creating executor...");
   rclc_executor_init(&executor, &uros_support.context, 0, &uros_allocator);
-  Serial.println("[uROS] Executor OK");
 
-  // Scan publisher (best effort)
-  Serial.println("[uROS] Creating /scan publisher...");
-  rclc_publisher_init_best_effort(
+  // Scan publisher (default = reliable, comme dans le code qui marchait)
+  rclc_publisher_init_default(
       &scan_pub, &uros_node,
       ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, LaserScan), "/scan");
   Serial.println("[uROS] scan_pub OK");
 
-  // IMU publisher (best effort)
-  Serial.println("[uROS] Creating /imu publisher...");
+  // IMU publisher (best effort pour le message gros)
   rclc_publisher_init_best_effort(
       &imu_pub, &uros_node, ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu),
       "/imu");
@@ -175,7 +169,7 @@ void microRosLidarTask(void *pv) {
   microRosReady = true;
   Serial.println("[uROS] microRosReady = true");
 
-  // Setup LaserScan message
+  // Setup LaserScan
   scan_msg.header.frame_id.data = (char *)"laser";
   scan_msg.header.frame_id.size = strlen("laser");
   scan_msg.header.frame_id.capacity = scan_msg.header.frame_id.size + 1;
@@ -183,11 +177,6 @@ void microRosLidarTask(void *pv) {
   scan_msg.ranges.capacity = 360;
   scan_msg.ranges.size = 360;
   scan_msg.ranges.data = (float *)malloc(360 * sizeof(float));
-  if (!scan_msg.ranges.data) {
-    Serial.println("[uROS] ERROR: malloc failed for ranges!");
-    vTaskDelete(NULL);
-    return;
-  }
 
   scan_msg.angle_min = 0.0f;
   scan_msg.angle_max = 2 * M_PI;
@@ -195,53 +184,32 @@ void microRosLidarTask(void *pv) {
   scan_msg.range_min = 0.05f;
   scan_msg.range_max = 12.0f;
 
-  Serial.println("[uROS] Init complete, entering publish loop");
+  Serial.println("[uROS] Entering publish loop");
 
   while (true) {
-    // Remplir les ranges depuis le pointBuffer
+    // --- SCAN ---
     for (int i = 0; i < 360; i++)
-      scan_msg.ranges.data[i] = 0.0f; // 0 = pas de mesure (ROS convention)
+      scan_msg.ranges.data[i] = INFINITY;
 
     if (xSemaphoreTake(bufferMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
-      unsigned long now = millis();
       for (int i = 0; i < pointsAvailable; i++) {
-        int idx =
-            (pointWriteIndex - 1 - i + POINT_BUFFER_SIZE) % POINT_BUFFER_SIZE;
-        LidarPoint &p = pointBuffer[idx];
-
-        // Ignorer les points trop vieux (> 500ms)
-        if (now - p.ts > 500)
-          continue;
-        if (p.confidence < 100)
-          continue;
-
-        int a = (int)p.angle;
-        if (a >= 0 && a < 360) {
-          float dist_m = p.distance * 0.001f;
-          // Garder la distance la plus proche pour chaque angle
-          if (scan_msg.ranges.data[a] == 0.0f ||
-              dist_m < scan_msg.ranges.data[a]) {
-            scan_msg.ranges.data[a] = dist_m;
-          }
-        }
+        int idx = (pointWriteIndex - i + POINT_BUFFER_SIZE) % POINT_BUFFER_SIZE;
+        int a = (int)pointBuffer[idx].angle;
+        if (a >= 0 && a < 360)
+          scan_msg.ranges.data[a] = pointBuffer[idx].distance * 0.001f;
       }
       xSemaphoreGive(bufferMutex);
     }
 
-    // Timestamp
-    unsigned long ms = rmw_uros_epoch_millis();
-    scan_msg.header.stamp.sec = ms / 1000;
-    scan_msg.header.stamp.nanosec = (ms % 1000) * 1000000;
+    scan_msg.header.stamp.sec = rmw_uros_epoch_millis() / 1000;
+    scan_msg.header.stamp.nanosec = (rmw_uros_epoch_millis() % 1000) * 1000000;
 
     rcl_publish(&scan_pub, &scan_msg, NULL);
 
-    // Publier IMU
-    imu_msg.header.stamp.sec = ms / 1000;
-    imu_msg.header.stamp.nanosec = (ms % 1000) * 1000000;
+    // --- IMU (données remplies par imuTask sur core 0) ---
+    imu_msg.header.stamp.sec = scan_msg.header.stamp.sec;
+    imu_msg.header.stamp.nanosec = scan_msg.header.stamp.nanosec;
     rcl_publish(&imu_pub, &imu_msg, NULL);
-
-    // Heartbeat
-    rclc_executor_spin_some(&executor, RCL_MS_TO_NS(10));
 
     vTaskDelay(pdMS_TO_TICKS(50)); // 20 Hz
   }

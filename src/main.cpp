@@ -3,6 +3,7 @@
 #include "globals.h"
 #include "lidar_manager.h"
 #include "motor_control.h"
+#include "naive_navigation.h"
 
 
 #include <Arduino.h>
@@ -14,32 +15,26 @@
 #define AGENT_IP "192.168.137.205"
 #define AGENT_PORT 8888
 
-#define FORWARD_PWM 150
+// ===== TEST MOTEURS AU DÉMARRAGE =====
+void testMotorsStartup() {
+  delay(500);
 
-// ===== TÂCHE SIMPLE : avancer + stop mur =====
-void simpleForwardTask(void *pvParameters) {
-  vTaskDelay(pdMS_TO_TICKS(3000));
-  Serial.println("[NAV] Simple forward task started");
+  Serial.println("[TEST] Motors: FORWARD 1s...");
+  channelBCtrl(180);
+  channelACtrl(180);
+  delay(1000);
 
-  bool wasStopped = false;
+  stopMotors();
+  delay(500);
 
-  while (true) {
-    if (obstacleDetected) {
-      stopMotors();
-      if (!wasStopped) {
-        Serial.printf("[NAV] STOP! Obstacle at %d mm\n", minObstacleDistance);
-        wasStopped = true;
-      }
-    } else {
-      channelBCtrl(FORWARD_PWM);
-      channelACtrl(FORWARD_PWM);
-      if (wasStopped) {
-        Serial.println("[NAV] GO - obstacle cleared");
-        wasStopped = false;
-      }
-    }
-    vTaskDelay(pdMS_TO_TICKS(50));
-  }
+  Serial.println("[TEST] Motors: BACKWARD 1s...");
+  channelBCtrl(-180);
+  channelACtrl(-180);
+  delay(1000);
+
+  stopMotors();
+  delay(500);
+  Serial.println("[TEST] Motors: DONE");
 }
 
 void setup() {
@@ -57,12 +52,18 @@ void setup() {
   initLidar();
   initMotors();
 
+  // Test moteurs
+  testMotorsStartup();
+
   // Mutexes
   ctrlMutex = xSemaphoreCreateMutex();
   lidarMutex = xSemaphoreCreateMutex();
   bufferMutex = xSemaphoreCreateMutex();
 
   memset(&ctrlData, 0, sizeof(ctrlData));
+
+  // Mode navigation naïve activé
+  currentNavMode = NAV_NAIVE;
 
   Serial.printf("[MEM] Free heap before tasks: %u bytes\n", ESP.getFreeHeap());
 
@@ -72,7 +73,8 @@ void setup() {
                           1);
   xTaskCreatePinnedToCore(imuTask, "ImuTask", 8192, NULL, 4, NULL, 0);
   xTaskCreatePinnedToCore(motorControlTask, "Motors", 4096, NULL, 3, NULL, 1);
-  xTaskCreatePinnedToCore(simpleForwardTask, "Forward", 4096, NULL, 2, NULL, 1);
+  xTaskCreatePinnedToCore(naiveNavigationTask, "NavNaive", 4096, NULL, 2, NULL,
+                          1);
 
   Serial.printf("[MEM] Free heap after tasks: %u bytes\n", ESP.getFreeHeap());
   Serial.println("=== SYSTEM READY ===");
