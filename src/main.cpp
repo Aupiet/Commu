@@ -3,9 +3,8 @@
 #include "globals.h"
 #include "lidar_manager.h"
 #include "motor_control.h"
-#include "naive_navigation.h"
-#include "speed_estimator.h"
-
+// #include "naive_navigation.h"
+// #include "speed_estimator.h"
 
 #include <Arduino.h>
 #include <micro_ros_arduino.h>
@@ -73,9 +72,9 @@ void setup() {
   xTaskCreatePinnedToCore(microRosLidarTask, "uRosLidar", 24000, NULL, 5, NULL,
                           1);
   xTaskCreatePinnedToCore(imuTask, "ImuTask", 8192, NULL, 4, NULL, 0);
-  xTaskCreatePinnedToCore(motorControlTask, "Motors", 4096, NULL, 3, NULL, 1);
-  xTaskCreatePinnedToCore(naiveNavigationTask, "NavNaive", 4096, NULL, 3, NULL,
-                          1);
+  // xTaskCreatePinnedToCore(motorControlTask, "Motors", 4096, NULL, 3, NULL,
+  // 1); xTaskCreatePinnedToCore(naiveNavigationTask, "NavNaive", 4096, NULL, 3,
+  // NULL,1);
 
   Serial.printf("[MEM] Free heap after tasks: %u bytes\n", ESP.getFreeHeap());
   Serial.println("=== SYSTEM READY ===");
