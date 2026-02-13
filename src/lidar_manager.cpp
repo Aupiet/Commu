@@ -222,6 +222,11 @@ void microRosLidarTask(void *pv) {
     rcl_publish(&scan_pub, &scan_msg, NULL);
     rcl_publish(&obstacle_pub, &obstacle_msg, NULL);
 
+    // Publier IMU (données mises à jour par imuTask sur core 0)
+    imu_msg.header.stamp.sec = rmw_uros_epoch_millis() / 1000;
+    imu_msg.header.stamp.nanosec = (rmw_uros_epoch_millis() % 1000) * 1000000;
+    rcl_publish(&imu_pub, &imu_msg, NULL);
+
     // Maintenir la session micro-ROS active (heartbeat)
     rclc_executor_spin_some(&executor, RCL_MS_TO_NS(10));
 

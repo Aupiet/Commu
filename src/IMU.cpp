@@ -1,9 +1,6 @@
 #include "IMU.h"
 #include "config.h"
 #include <Wire.h>
-#include <micro_ros_arduino.h>
-#include <rcl/rcl.h>
-#include <rclc/rclc.h>
 #include <sensor_msgs/msg/imu.h>
 
 // --- CORRECTION : Instanciation des variables globales ---
@@ -31,10 +28,9 @@ double declination_shenzhen = -3.22;
 
 float q0, q1, q2, q3;
 
-// micro-ROS IMU (créés dans microRosLidarTask, lidar_manager.cpp)
-extern rcl_publisher_t imu_pub;
+// Message IMU partagé (défini dans lidar_manager.cpp, publié par
+// microRosLidarTask)
 extern sensor_msgs__msg__Imu imu_msg;
-extern volatile bool microRosReady;
 
 void imuInit() {
   // Wire.begin() est appelé dans imuTask() (même core)
@@ -228,24 +224,16 @@ void calibrateMagn(void) {
 
 void imuTask(void *pvParameters) {
 
-  Serial.println("[uROS-IMU] Task started, init I2C on this core...");
+  Serial.println("[IMU] Task started, init I2C on this core...");
 
   // Init I2C sur le même core que la tâche
   Wire.begin(I2C_SDA, I2C_SCL);
   Wire.setClock(400000);
-  Serial.println("[uROS-IMU] Wire OK");
+  Serial.println("[IMU] Wire OK");
 
   // Init capteurs IMU
   imuInit();
-  Serial.println("[uROS-IMU] IMU sensors initialized");
-
-  Serial.println("[uROS-IMU] Waiting for microRosReady...");
-
-  // Attendre que microRosLidarTask ait fini l'init micro-ROS
-  while (!microRosReady) {
-    vTaskDelay(pdMS_TO_TICKS(500));
-  }
-  Serial.println("[uROS-IMU] microRosReady detected!");
+  Serial.println("[IMU] IMU sensors initialized");
 
   // Zero-init du message IMU
   memset(&imu_msg, 0, sizeof(imu_msg));
@@ -259,15 +247,12 @@ void imuTask(void *pvParameters) {
   imu_msg.angular_velocity_covariance[0] = -1.0;
   imu_msg.linear_acceleration_covariance[0] = -1.0;
 
-  Serial.println("[uROS-IMU] Init complete, entering publish loop");
+  Serial.println("[IMU] Init complete, entering sensor loop");
 
   while (true) {
     updateIMUData();
 
-    int64_t now_ns = rmw_uros_epoch_nanos();
-    imu_msg.header.stamp.sec = now_ns / 1000000000;
-    imu_msg.header.stamp.nanosec = now_ns % 1000000000;
-
+    // Remplir le message partagé (publié par microRosLidarTask)
     imu_msg.orientation.x = q1;
     imu_msg.orientation.y = q2;
     imu_msg.orientation.z = q3;
@@ -281,7 +266,7 @@ void imuTask(void *pvParameters) {
     imu_msg.linear_acceleration.y = stAccelRawData.Y;
     imu_msg.linear_acceleration.z = stAccelRawData.Z;
 
-    rcl_publish(&imu_pub, &imu_msg, NULL);
+    // PAS de rcl_publish ici — c'est microRosLidarTask qui publie
     vTaskDelay(pdMS_TO_TICKS(50)); // 20 Hz
   }
 }
