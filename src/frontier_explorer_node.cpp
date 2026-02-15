@@ -1,4 +1,4 @@
-#include "frontier_detector.hpp"
+#include "frontier_detector.h"
 #include "naive_navigation.h"
 
 // Transforme coordonnées robot -> cellule
