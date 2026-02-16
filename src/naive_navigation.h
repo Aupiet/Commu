@@ -27,7 +27,7 @@
 
 // --- Répulsion obstacles ---
 #define NAV_REPULSION_DIST_MM 800 // Distance sous laquelle un obstacle repousse
-#define NAV_REPULSION_GAIN 30.0f  // Force de la répulsion (degrés)
+#define NAV_REPULSION_GAIN 15.0f  // Force de la répulsion (degrés)
 #define NAV_REPULSION_SCAN_ANGLE                                               \
   90 // Demi-angle de scan pour la répulsion (±90°)
 

@@ -90,9 +90,11 @@ static float computeRepulsion() {
     float strength = 1.0f - ((float)dist / (float)NAV_REPULSION_DIST_MM);
 
     if (offset > 0) {
-      repulsion -= strength * NAV_REPULSION_GAIN; // Obstacle à gauche → droite
+      repulsion +=
+          strength * NAV_REPULSION_GAIN; // Obstacle à droite → pousser à gauche
     } else {
-      repulsion += strength * NAV_REPULSION_GAIN; // Obstacle à droite → gauche
+      repulsion -=
+          strength * NAV_REPULSION_GAIN; // Obstacle à gauche → pousser à droite
     }
   }
 
@@ -106,23 +108,25 @@ static float computeRepulsion() {
 //  et applique une correction pour rester centré.
 // ============================================================
 static float computeWallCentering() {
-  // Mesurer la distance au mur gauche (autour de 90°)
-  uint32_t leftSum = 0;
-  int leftCount = 0;
-  for (int a = 70; a <= 110; a++) {
-    if (distMap[a] < NAV_MAX_RANGE_MM) {
-      leftSum += distMap[a];
-      leftCount++;
-    }
-  }
+  // LD06 : 90° = DROITE du robot, 270° = GAUCHE du robot
 
-  // Mesurer la distance au mur droit (autour de 270°)
+  // Mesurer la distance au mur DROIT (autour de 90°)
   uint32_t rightSum = 0;
   int rightCount = 0;
-  for (int a = 250; a <= 290; a++) {
+  for (int a = 70; a <= 110; a++) {
     if (distMap[a] < NAV_MAX_RANGE_MM) {
       rightSum += distMap[a];
       rightCount++;
+    }
+  }
+
+  // Mesurer la distance au mur GAUCHE (autour de 270°)
+  uint32_t leftSum = 0;
+  int leftCount = 0;
+  for (int a = 250; a <= 290; a++) {
+    if (distMap[a] < NAV_MAX_RANGE_MM) {
+      leftSum += distMap[a];
+      leftCount++;
     }
   }
 
@@ -132,20 +136,18 @@ static float computeWallCentering() {
   float leftDist = (float)leftSum / leftCount;
   float rightDist = (float)rightSum / rightCount;
 
-  // Différence : positif = plus loin du mur gauche, négatif = plus loin du mur
-  // droit
-  float diff = leftDist - rightDist;
+  // Si plus proche du mur droit (rightDist < leftDist) → corriger vers gauche
+  // (positif) Si plus proche du mur gauche (leftDist < rightDist) → corriger
+  // vers droite (négatif)
+  float diff =
+      rightDist - leftDist; // positif = plus loin du mur droit = dérive gauche
+  float correction = -diff * NAV_CENTERING_GAIN;
 
-  // Correction proportionnelle : si trop à droite (leftDist > rightDist),
-  // corriger vers la gauche (positif)
-  // NAV_CENTERING_GAIN contrôle la force
-  float correction = diff * NAV_CENTERING_GAIN;
-
-  // Limiter la correction pour ne pas dominer la navigation
-  if (correction > 15.0f)
-    correction = 15.0f;
-  if (correction < -15.0f)
-    correction = -15.0f;
+  // Limiter la correction
+  if (correction > 8.0f)
+    correction = 8.0f;
+  if (correction < -8.0f)
+    correction = -8.0f;
 
   return correction;
 }
@@ -235,7 +237,14 @@ void naiveNavigationTask(void *pvParameters) {
     // --- Vérifier activation via /naif ---
     if (!naifEnabled) {
       if (wasEnabled) {
+        // Arrêter les moteurs ET remettre la commande à zéro
         stopMotors();
+        if (xSemaphoreTake(ctrlMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+          motorCmd.leftPWM = 0;
+          motorCmd.rightPWM = 0;
+          motorCmd.timestamp = millis();
+          xSemaphoreGive(ctrlMutex);
+        }
         Serial.println("[NAV] Stopped (naif disabled)");
         wasEnabled = false;
       }
