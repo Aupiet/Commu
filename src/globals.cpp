@@ -13,6 +13,7 @@ MotorCommand motorCmd = {0, 0, 0};
 NavMode currentNavMode = NAV_NAIVE;
 volatile int currentSpeedPWM = 0;
 volatile int currentDirection = 0;
+volatile bool naifEnabled = false;
 
 LidarPoint pointBuffer[POINT_BUFFER_SIZE];
 int pointWriteIndex = 0;

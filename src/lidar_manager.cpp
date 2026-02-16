@@ -8,13 +8,17 @@
 #include <rclc/rclc.h>
 #include <sensor_msgs/msg/imu.h>
 #include <sensor_msgs/msg/laser_scan.h>
-
+#include <std_msgs/msg/int32.h>
 
 HardwareSerial lidarSerial(1);
 
 // ===== micro-ROS =====
 static rcl_publisher_t scan_pub;
 static sensor_msgs__msg__LaserScan scan_msg;
+
+// Subscriber /naif
+static rcl_subscription_t naif_sub;
+static std_msgs__msg__Int32 naif_msg;
 
 // Partagés avec imuTask
 rcl_publisher_t imu_pub;
@@ -23,6 +27,18 @@ rcl_node_t uros_node;
 rclc_support_t uros_support;
 rcl_allocator_t uros_allocator;
 volatile bool microRosReady = false;
+
+// Callback /naif : 1 = démarrer naïf, 0 = arrêter
+static void naifCallback(const void *msgin) {
+  const std_msgs__msg__Int32 *msg = (const std_msgs__msg__Int32 *)msgin;
+  if (msg->data == 1) {
+    naifEnabled = true;
+    Serial.println("[NAIF] Enabled (received 1)");
+  } else {
+    naifEnabled = false;
+    Serial.println("[NAIF] Disabled (received 0)");
+  }
+}
 
 // ===== PARAMÈTRES =====
 #define DIST_STOP_MM 350
@@ -152,7 +168,7 @@ void microRosLidarTask(void *pv) {
   rclc_node_init_default(&uros_node, "esp32_node", "", &uros_support);
   Serial.println("[uROS] Node OK");
 
-  rclc_executor_init(&executor, &uros_support.context, 0, &uros_allocator);
+  rclc_executor_init(&executor, &uros_support.context, 1, &uros_allocator);
 
   // Scan publisher (default = reliable, comme dans le code qui marchait)
   rclc_publisher_init_default(
@@ -165,6 +181,14 @@ void microRosLidarTask(void *pv) {
       &imu_pub, &uros_node, ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu),
       "/imu");
   Serial.println("[uROS] imu_pub OK");
+
+  // Subscriber /naif (Int32)
+  rclc_subscription_init_default(
+      &naif_sub, &uros_node, ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Int32),
+      "/naif");
+  rclc_executor_add_subscription(&executor, &naif_sub, &naif_msg, &naifCallback,
+                                 ON_NEW_DATA);
+  Serial.println("[uROS] /naif subscriber OK");
 
   microRosReady = true;
   Serial.println("[uROS] microRosReady = true");
@@ -210,6 +234,9 @@ void microRosLidarTask(void *pv) {
     imu_msg.header.stamp.sec = scan_msg.header.stamp.sec;
     imu_msg.header.stamp.nanosec = scan_msg.header.stamp.nanosec;
     rcl_publish(&imu_pub, &imu_msg, NULL);
+
+    // Traiter les subscriptions (callback /naif)
+    rclc_executor_spin_some(&executor, RCL_MS_TO_NS(10));
 
     vTaskDelay(pdMS_TO_TICKS(50)); // 20 Hz
   }

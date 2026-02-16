@@ -35,7 +35,7 @@ extern uint8_t esp01Address[6];
 #define FRONT_ANGLE_MAX 30
 #define PACKET_SIZE 47
 #define MEAS_PER_PACKET 12
-#define POINT_BUFFER_SIZE 720
+#define POINT_BUFFER_SIZE 2000
 
 // Motor Pins (Ces pins 21/22 ne doivent PAS être utilisés par Wire.begin par
 // défaut)

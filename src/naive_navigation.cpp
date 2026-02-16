@@ -166,7 +166,26 @@ void naiveNavigationTask(void *pvParameters) {
   vTaskDelay(pdMS_TO_TICKS(3000));
   Serial.println("[NAV] Naive navigation task started");
 
+  bool wasEnabled = false;
+
   while (true) {
+    // Vérifier si l'algorithme naïf est activé via /naif
+    if (!naifEnabled) {
+      if (wasEnabled) {
+        // Vient de passer à désactivé → arrêter les moteurs
+        stopMotors();
+        Serial.println("[NAV] Stopped (naif disabled)");
+        wasEnabled = false;
+      }
+      vTaskDelay(pdMS_TO_TICKS(200));
+      continue;
+    }
+
+    if (!wasEnabled) {
+      Serial.println("[NAV] Started (naif enabled)");
+      wasEnabled = true;
+    }
+
     float heading = computeNaiveHeading();
 
     int leftPWM = 0;
