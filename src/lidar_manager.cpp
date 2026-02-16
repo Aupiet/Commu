@@ -41,7 +41,7 @@ static void naifCallback(const void *msgin) {
 }
 
 // ===== PARAMÈTRES =====
-#define DIST_STOP_MM 350
+#define DIST_STOP_MM 150
 #define OBSTACLE_HOLD_MS 400
 
 // =====================

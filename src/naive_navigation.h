@@ -31,8 +31,11 @@
 #define NAV_REPULSION_SCAN_ANGLE                                               \
   90 // Demi-angle de scan pour la répulsion (±90°)
 
-// --- Rotation bloqué (non-bloquante) ---
-#define NAV_SPIN_DURATION_MS 400
+// --- Centrage entre murs (anti-dérive) ---
+#define NAV_CENTERING_GAIN                                                     \
+  0.03f // Force du centrage (degrés par mm de différence)
+
+// --- Rotation quand bloqué ---
 #define NAV_SPIN_PWM 180
 
 // --- Vitesse adaptative ---

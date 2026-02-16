@@ -119,23 +119,11 @@ void motorControlTask(void *pvParameters) {
       xSemaphoreGive(ctrlMutex);
     }
 
-    // --- SÉCURITÉ LIDAR (dernier rempart) ---
-    bool isMovingForward = (leftPWM > 0 && rightPWM > 0);
-    bool safeToMove = true;
-
-    if (obstacleDetected && isMovingForward) {
-      safeToMove = false;
-    }
-
-    if (!safeToMove) {
-      stopMotors();
-      currentSpeedPWM = 0;
-    } else {
-      // Appliquer directement les PWM gauche/droite
-      channelBCtrl(leftPWM);  // Canal B = Gauche sur Wave Rover
-      channelACtrl(rightPWM); // Canal A = Droite sur Wave Rover
-      currentSpeedPWM = (leftPWM + rightPWM) / 2;
-    }
+    // Appliquer directement les PWM gauche/droite
+    // (la navigation gère l'évitement, pas de blocage ici)
+    channelBCtrl(leftPWM);  // Canal B = Gauche sur Wave Rover
+    channelACtrl(rightPWM); // Canal A = Droite sur Wave Rover
+    currentSpeedPWM = (leftPWM + rightPWM) / 2;
 
     // Boucle régulière
     vTaskDelayUntil(&xLastWakeTime, xFrequency);
