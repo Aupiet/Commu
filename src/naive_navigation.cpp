@@ -47,13 +47,34 @@ static void buildDistMap() {
 }
 
 // ============================================================
-//  Vérification clearance latérale
+//  Moyenne des distances adjacentes
 //
-//  Pour un angle donné, on vérifie que les angles adjacents
-//  (± quelques degrés) n'ont pas d'obstacles trop proches.
-//  On calcule la distance perpendiculaire entre la trajectoire
-//  robot et l'obstacle latéral. Si cette distance > demi-largeur
-//  robot → OK.
+//  Au lieu de prendre la distance brute d'un seul degré,
+//  on fait la moyenne sur ±NAV_AVG_WINDOW degrés pour obtenir
+//  une estimation plus robuste de la distance dans une
+//  direction donnée.
+// ============================================================
+static uint16_t getAveragedDist(int angleDeg) {
+  int a = angleDeg;
+  if (a < 0)
+    a += 360;
+  if (a >= 360)
+    a -= 360;
+
+  uint32_t sum = 0;
+  int count = 0;
+
+  for (int offset = -NAV_AVG_WINDOW; offset <= NAV_AVG_WINDOW; offset++) {
+    int idx = (a + offset + 360) % 360;
+    sum += distMap[idx];
+    count++;
+  }
+
+  return (uint16_t)(sum / count);
+}
+
+// ============================================================
+//  Vérification clearance latérale
 // ============================================================
 static bool hasLateralClearance(int angleDeg, uint16_t frontDist) {
   int a = angleDeg;
@@ -65,13 +86,10 @@ static bool hasLateralClearance(int angleDeg, uint16_t frontDist) {
   if (frontDist < NAV_STOP_DISTANCE_MM)
     return false;
 
-  float halfWidth = NAV_MIN_PASSAGE_MM / 2.0f; // 134 mm
+  float halfWidth = NAV_MIN_PASSAGE_MM / 2.0f; // 104 mm (réduit)
 
-  // Vérifier les angles adjacents (±1° à ±15°)
-  // Pour chaque angle latéral, l'obstacle est à distMap[a±offset]
-  // La distance perpendiculaire = dist_laterale * sin(offset)
-  // Si dist_perp < halfWidth → le robot ne passe pas
-  int maxCheck = 15;
+  // Vérifier les angles adjacents (±1° à ±10°) — réduit de 15
+  int maxCheck = 10;
 
   for (int offset = 1; offset <= maxCheck; offset++) {
     int aLeft = (a + offset) % 360;
@@ -80,17 +98,12 @@ static bool hasLateralClearance(int angleDeg, uint16_t frontDist) {
     float offsetRad = (float)offset * (M_PI / 180.0f);
     float sinVal = sinf(offsetRad);
 
-    // Distance perpendiculaire de l'obstacle à la trajectoire
     float perpLeft = (float)distMap[aLeft] * sinVal;
     float perpRight = (float)distMap[aRight] * sinVal;
 
-    // On ne vérifie que si l'obstacle est PLUS PROCHE que notre trajectoire
-    // (i.e. si l'obstacle est en travers de notre chemin)
     float obstFrontLeft = (float)distMap[aLeft] * cosf(offsetRad);
     float obstFrontRight = (float)distMap[aRight] * cosf(offsetRad);
 
-    // L'obstacle latéral n'est un problème que s'il est DEVANT nous
-    // (sa projection sur notre axe < notre distance de trajet)
     if (obstFrontLeft > 0 && obstFrontLeft < (float)frontDist) {
       if (perpLeft < halfWidth)
         return false;
@@ -107,11 +120,8 @@ static bool hasLateralClearance(int angleDeg, uint16_t frontDist) {
 // ============================================================
 //  computeNaiveHeading — Algorithme principal
 //
-//  1. Chercher dans le cône avant (±NAV_FORWARD_HALF_ANGLE)
-//  2. Choisir la direction avec le point le plus ÉLOIGNÉ
-//  3. Équidistance → préférer GAUCHE
-//  4. Vérifier clearance latérale (largeur robot)
-//  5. Si bloqué → NAV_NO_PATH
+//  Utilise getAveragedDist() au lieu de distMap[] brut
+//  pour une sélection de direction plus stable.
 // ============================================================
 float computeNaiveHeading() {
   buildDistMap();
@@ -141,7 +151,8 @@ float computeNaiveHeading() {
       if (mapIndex < 0)
         mapIndex += 360;
 
-      uint16_t dist = distMap[mapIndex];
+      // Utiliser la distance moyennée sur les points adjacents
+      uint16_t dist = getAveragedDist(mapIndex);
 
       if (dist < NAV_STOP_DISTANCE_MM)
         continue;
@@ -160,7 +171,29 @@ float computeNaiveHeading() {
 }
 
 // ============================================================
-//  Tâche FreeRTOS
+//  Calcul de la vitesse adaptative
+//
+//  Plus la meilleure distance est courte, plus on ralentit.
+//  Au-delà de NAV_CONFIDENCE_DIST_MM → pleine vitesse.
+// ============================================================
+static int computeAdaptiveSpeed(uint16_t bestDist) {
+  if (bestDist >= NAV_CONFIDENCE_DIST_MM) {
+    return NAV_FORWARD_SPEED;
+  }
+  // Interpolation linéaire entre SLOW et FORWARD
+  float ratio = (float)(bestDist - NAV_STOP_DISTANCE_MM) /
+                (float)(NAV_CONFIDENCE_DIST_MM - NAV_STOP_DISTANCE_MM);
+  if (ratio < 0.0f)
+    ratio = 0.0f;
+  if (ratio > 1.0f)
+    ratio = 1.0f;
+
+  return NAV_SLOW_SPEED +
+         (int)(ratio * (float)(NAV_FORWARD_SPEED - NAV_SLOW_SPEED));
+}
+
+// ============================================================
+//  Tâche FreeRTOS — Machine à états non-bloquante
 // ============================================================
 void naiveNavigationTask(void *pvParameters) {
   vTaskDelay(pdMS_TO_TICKS(3000));
@@ -168,14 +201,24 @@ void naiveNavigationTask(void *pvParameters) {
 
   bool wasEnabled = false;
 
+  // Lissage EMA du heading
+  float smoothedHeading = 0.0f;
+  bool firstHeading = true;
+
+  // Machine à états pour le spin (dernier recours)
+  enum NavState { NAV_RUNNING, NAV_SPINNING };
+  NavState state = NAV_RUNNING;
+  unsigned long spinStartTime = 0;
+
   while (true) {
-    // Vérifier si l'algorithme naïf est activé via /naif
+    // --- Vérifier si l'algorithme naïf est activé via /naif ---
     if (!naifEnabled) {
       if (wasEnabled) {
-        // Vient de passer à désactivé → arrêter les moteurs
         stopMotors();
         Serial.println("[NAV] Stopped (naif disabled)");
         wasEnabled = false;
+        state = NAV_RUNNING;
+        firstHeading = true;
       }
       vTaskDelay(pdMS_TO_TICKS(200));
       continue;
@@ -184,39 +227,92 @@ void naiveNavigationTask(void *pvParameters) {
     if (!wasEnabled) {
       Serial.println("[NAV] Started (naif enabled)");
       wasEnabled = true;
+      firstHeading = true;
+      smoothedHeading = 0.0f;
+      state = NAV_RUNNING;
     }
-
-    float heading = computeNaiveHeading();
 
     int leftPWM = 0;
     int rightPWM = 0;
 
+    // ========================================================
+    //  ÉTAT: SPINNING — rotation en dernier recours
+    //  Non-bloquant : on vérifie si le temps est écoulé
+    // ========================================================
+    if (state == NAV_SPINNING) {
+      if (millis() - spinStartTime < NAV_SPIN_DURATION_MS) {
+        // Continuer à tourner à gauche
+        leftPWM = -NAV_SPIN_PWM;
+        rightPWM = NAV_SPIN_PWM;
+      } else {
+        // Spin terminé → retour à NAV_RUNNING
+        state = NAV_RUNNING;
+        firstHeading = true;
+        Serial.println("[NAV] Spin done, resuming");
+        // On ne stoppe pas : on passe directement à l'analyse ci-dessous
+        // au prochain tick
+      }
+
+      // Écrire la commande moteur (spin ou arrêt)
+      if (state == NAV_SPINNING) {
+        if (xSemaphoreTake(ctrlMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+          motorCmd.leftPWM = leftPWM;
+          motorCmd.rightPWM = rightPWM;
+          motorCmd.timestamp = millis();
+          xSemaphoreGive(ctrlMutex);
+        }
+        vTaskDelay(pdMS_TO_TICKS(NAV_TASK_PERIOD_MS));
+        continue;
+      }
+    }
+
+    // ========================================================
+    //  ÉTAT: RUNNING — navigation normale
+    // ========================================================
+    float heading = computeNaiveHeading();
+
     if (heading == NAV_NO_PATH) {
-      // BLOQUÉ : rotation forcée à gauche pendant NAV_BLOCKED_TURN_MS
-      Serial.println("[NAV] BLOCKED -> forced left spin");
-      channelBCtrl(-255); // Gauche en arrière
-      channelACtrl(255);  // Droite en avant
-      vTaskDelay(pdMS_TO_TICKS(NAV_BLOCKED_TURN_MS));
-      stopMotors();
-      continue; // Reprendre l'analyse immédiatement
-    } else if (fabsf(heading) < 3.0f) {
+      // BLOQUÉ → passer en spin (dernier recours, non-bloquant)
+      Serial.println("[NAV] BLOCKED -> spin left (last resort)");
+      state = NAV_SPINNING;
+      spinStartTime = millis();
+      vTaskDelay(pdMS_TO_TICKS(NAV_TASK_PERIOD_MS));
+      continue;
+    }
+
+    // --- Lissage EMA de la direction ---
+    if (firstHeading) {
+      smoothedHeading = heading;
+      firstHeading = false;
+    } else {
+      smoothedHeading = NAV_SMOOTHING_ALPHA * heading +
+                        (1.0f - NAV_SMOOTHING_ALPHA) * smoothedHeading;
+    }
+
+    // --- Récupérer la meilleure distance pour la vitesse adaptative ---
+    int mapIdx = (int)smoothedHeading;
+    if (mapIdx < 0)
+      mapIdx += 360;
+    uint16_t bestDist = getAveragedDist(mapIdx);
+    int speed = computeAdaptiveSpeed(bestDist);
+
+    if (fabsf(smoothedHeading) < 3.0f) {
       // TOUT DROIT
-      leftPWM = NAV_FORWARD_SPEED;
-      rightPWM = NAV_FORWARD_SPEED;
+      leftPWM = speed;
+      rightPWM = speed;
     } else {
       // CORRECTION PROPORTIONNELLE
-      float correction = heading * NAV_ANGLE_GAIN;
-      correction = constrain(correction, -(float)NAV_FORWARD_SPEED,
-                             (float)NAV_FORWARD_SPEED);
+      float correction = smoothedHeading * NAV_ANGLE_GAIN;
+      correction = constrain(correction, -(float)speed, (float)speed);
 
-      leftPWM = (int)(NAV_FORWARD_SPEED - correction);
-      rightPWM = (int)(NAV_FORWARD_SPEED + correction);
+      leftPWM = (int)(speed - correction);
+      rightPWM = (int)(speed + correction);
 
       leftPWM = constrain(leftPWM, -255, 255);
       rightPWM = constrain(rightPWM, -255, 255);
 
-      Serial.printf("[NAV] heading=%.0f L=%d R=%d\n", heading, leftPWM,
-                    rightPWM);
+      Serial.printf("[NAV] h=%.0f sh=%.0f spd=%d L=%d R=%d\n", heading,
+                    smoothedHeading, speed, leftPWM, rightPWM);
     }
 
     // Écrire la commande moteur
