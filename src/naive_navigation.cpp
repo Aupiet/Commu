@@ -262,12 +262,15 @@ void naiveNavigationTask(void *pvParameters) {
     int leftPWM = 0;
     int rightPWM = 0;
 
-    if (heading == NAV_NO_PATH) {
+    // Vérifier d'abord si obstacle DEVANT trop proche → spin forcé
+    uint16_t frontCheck = getAveragedDist(0);
+    bool frontBlocked = (frontCheck < NAV_STOP_DISTANCE_MM);
+
+    if (heading == NAV_NO_PATH || frontBlocked) {
       // BLOQUÉ : tourner à gauche sur place (pas d'arrêt !)
-      // Tourne à gauche jusqu'à retrouver un cap à la prochaine itération
       leftPWM = -NAV_SPIN_PWM;
       rightPWM = NAV_SPIN_PWM;
-      Serial.println("[NAV] No path -> spinning left");
+      Serial.printf("[NAV] Spin left (front=%dmm)\n", frontCheck);
     } else {
       // Vitesse adaptative basée sur l'obstacle le plus proche devant
       uint16_t frontDist = getAveragedDist(0); // Distance droit devant
