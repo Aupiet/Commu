@@ -269,12 +269,15 @@ void naiveNavigationTask(void *pvParameters) {
       rightPWM = NAV_SPIN_PWM;
       Serial.println("[NAV] No path -> spinning left");
     } else {
-      // Récupérer distance pour vitesse adaptative
+      // Vitesse adaptative basée sur l'obstacle le plus proche devant
+      uint16_t frontDist = getAveragedDist(0); // Distance droit devant
       int mapIdx = (int)heading;
       if (mapIdx < 0)
         mapIdx += 360;
-      uint16_t bestDist = getAveragedDist(mapIdx);
-      int speed = computeAdaptiveSpeed(bestDist);
+      uint16_t headingDist = getAveragedDist(mapIdx);
+      // Prendre la distance la plus courte pour ralentir au max
+      uint16_t minDist = (frontDist < headingDist) ? frontDist : headingDist;
+      int speed = computeAdaptiveSpeed(minDist);
 
       if (fabsf(heading) < 3.0f) {
         leftPWM = speed;

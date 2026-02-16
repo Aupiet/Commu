@@ -19,15 +19,15 @@
 
 // --- Comportement ---
 #define NAV_FORWARD_HALF_ANGLE 60.0f
-#define NAV_FORWARD_SPEED 180
-#define NAV_SLOW_SPEED 100
+#define NAV_FORWARD_SPEED 126 // -30%
+#define NAV_SLOW_SPEED 70     // -30%
 #define NAV_ANGLE_GAIN 2.0f
 #define NAV_TASK_PERIOD_MS 100
 #define NAV_AVG_WINDOW 5
 
 // --- Répulsion obstacles ---
 #define NAV_REPULSION_DIST_MM 800 // Distance sous laquelle un obstacle repousse
-#define NAV_REPULSION_GAIN 15.0f  // Force de la répulsion (degrés)
+#define NAV_REPULSION_GAIN 10.0f  // Force de la répulsion (degrés)
 #define NAV_REPULSION_SCAN_ANGLE                                               \
   90 // Demi-angle de scan pour la répulsion (±90°)
 
