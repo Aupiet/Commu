@@ -8,7 +8,7 @@
 #include <rclc/rclc.h>
 #include <sensor_msgs/msg/imu.h>
 #include <sensor_msgs/msg/laser_scan.h>
-#include <std_msgs/msg/int32.h>
+#include <std_msgs/msg/bool.h>
 
 HardwareSerial lidarSerial(1);
 
@@ -18,7 +18,7 @@ static sensor_msgs__msg__LaserScan scan_msg;
 
 // Subscriber /naif
 static rcl_subscription_t naif_sub;
-static std_msgs__msg__Int32 naif_msg;
+static std_msgs__msg__Bool naif_msg;
 
 // Partagés avec imuTask
 rcl_publisher_t imu_pub;
@@ -30,13 +30,13 @@ volatile bool microRosReady = false;
 
 // Callback /naif : 1 = démarrer naïf, 0 = arrêter
 static void naifCallback(const void *msgin) {
-  const std_msgs__msg__Int32 *msg = (const std_msgs__msg__Int32 *)msgin;
-  if (msg->data == 1) {
+  const std_msgs__msg__Bool *msg = (const std_msgs__msg__Bool *)msgin;
+  if (msg->data) {
     naifEnabled = true;
-    Serial.println("[NAIF] Enabled (received 1)");
+    Serial.println("[NAIF] Enabled (received true)");
   } else {
     naifEnabled = false;
-    Serial.println("[NAIF] Disabled (received 0)");
+    Serial.println("[NAIF] Disabled (received false)");
   }
 }
 
@@ -182,9 +182,9 @@ void microRosLidarTask(void *pv) {
       "/imu");
   Serial.println("[uROS] imu_pub OK");
 
-  // Subscriber /naif (Int32)
+  // Subscriber /naif (Bool)
   rclc_subscription_init_default(
-      &naif_sub, &uros_node, ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Int32),
+      &naif_sub, &uros_node, ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Bool),
       "/naif");
   rclc_executor_add_subscription(&executor, &naif_sub, &naif_msg, &naifCallback,
                                  ON_NEW_DATA);
