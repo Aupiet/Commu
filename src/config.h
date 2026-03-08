@@ -37,21 +37,35 @@ extern uint8_t esp01Address[6];
 #define MEAS_PER_PACKET 12
 #define POINT_BUFFER_SIZE 2000
 
-// Motor Pins (Ces pins 21/22 ne doivent PAS être utilisés par Wire.begin par défaut)
+// Motor Pins (Ces pins 21/22 ne doivent PAS être utilisés par Wire.begin par
+// défaut)
 #define PWMA 25
 #define AIN2 17
-#define AIN1 21 
-#define BIN1 22 
+#define AIN1 21
+#define BIN1 22
 #define BIN2 23
 #define PWMB 26
 
 // PWM Settings
-#define PWM_FREQ 100000
+#define PWM_FREQ 1000
 #define PWM_RESOLUTION 8
 #define MOTOR_CHANNEL_A 5
 #define MOTOR_CHANNEL_B 6
 
-// Structures
+// Mode de navigation
+enum NavMode {
+  NAV_NAIVE, // Navigation naïve (obstacle avoidance)
+  NAV_SLAM   // Navigation SLAM + A* (futur)
+};
+
+// Commande moteur directe (remplace le joystick)
+struct MotorCommand {
+  int leftPWM;  // -255 à +255
+  int rightPWM; // -255 à +255
+  uint32_t timestamp;
+};
+
+// Structures legacy (gardé pour compatibilité ESP-NOW)
 struct ControlPacket {
   int joyX;
   int joyY;
@@ -59,7 +73,7 @@ struct ControlPacket {
   uint32_t timestamp;
 };
 
-#pragma pack(push,1)
+#pragma pack(push, 1)
 typedef struct {
   uint8_t header;
   uint8_t length;

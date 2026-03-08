@@ -1,100 +1,93 @@
-#include <Arduino.h>
-#include <micro_ros_arduino.h>
-#include <rcl/rcl.h>
-#include <rclc/rclc.h>
-#include <rclc/executor.h>
-#include <sensor_msgs/msg/laser_scan.h>
-#include <std_msgs/msg/bool.h>
+#include "IMU.h"
 #include "config.h"
 #include "globals.h"
-#include "motor_control.h"
 #include "lidar_manager.h"
-#include "communication.h"
-#include "display_manager.h"
-#include "speed_estimator.h"
-#include "IMU.h"
-#include <Wire.h>
+#include "motor_control.h"
+#include "naive_navigation.h"
 
-// CONFIGURATION PINS ENCODEURS
-#define ENCODER_LEFT_PIN 35
-#define ENCODER_RIGHT_PIN 34
 
-void IRAM_ATTR encoderLeftISR() {
-  onEncoderLeftPulse();
-}
-void IRAM_ATTR encoderRightISR() {
-  onEncoderRightPulse();
+#include <Arduino.h>
+#include <micro_ros_arduino.h>
+
+// ===== CONFIG =====
+#define SSID "Pile AA"
+#define PASS "3011906andy"
+#define AGENT_IP "192.168.137.205"
+#define AGENT_PORT 8888
+
+// ===== TEST MOTEURS AU DÉMARRAGE =====
+void testMotorsStartup() {
+  delay(500);
+
+  Serial.println("[TEST] Motors: FORWARD 1s...");
+  channelBCtrl(180);
+  channelACtrl(180);
+  delay(1000);
+
+  stopMotors();
+  delay(500);
+
+  Serial.println("[TEST] Motors: BACKWARD 1s...");
+  channelBCtrl(-180);
+  channelACtrl(-180);
+  delay(1000);
+
+  stopMotors();
+  delay(500);
+  Serial.println("[TEST] Motors: DONE");
 }
 
 void setup() {
-  delay(5000);
+  delay(2000);
   Serial.begin(115200);
-  Serial.println("\n=== ESP32 WAVE ROVER v3.2 (Lidar Optimized) ===\n");
+  Serial.println("=== ESP32 WAVE ROVER START ===");
+  Serial.printf("[MEM] Free heap: %u bytes\n", ESP.getFreeHeap());
 
-  // Transport micro-ROS (USB ou WiFi)
-  set_microros_transports();
-  Serial.println("MICRO-ROS START");
+  // WiFi transport pour micro-ROS
+  set_microros_wifi_transports(SSID, PASS, AGENT_IP, AGENT_PORT);
+  Serial.println("[WiFi] Transport configured");
+  Serial.printf("[MEM] Free heap after WiFi: %u bytes\n", ESP.getFreeHeap());
 
+  // Init hardware
   initLidar();
-
-  Serial.println("System ready (LiDAR + micro-ROS)");
-  
-  pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, LOW);
-  
-  // I2C Fixe pour ESP32
-  Wire.begin(I2C_SDA, I2C_SCL);
-  Wire.setClock(400000); 
-
-  initDisplay();
   initMotors();
-  imuInit(); 
-  initSpeedEstimator();
-  
-  // Encodeurs
-  pinMode(ENCODER_LEFT_PIN, INPUT_PULLUP);
-  pinMode(ENCODER_RIGHT_PIN, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(ENCODER_LEFT_PIN), encoderLeftISR, RISING);
-  attachInterrupt(digitalPinToInterrupt(ENCODER_RIGHT_PIN), encoderRightISR, RISING);
-  
-  initCommunication();
 
-  // Mutex
+  // Test moteurs
+  testMotorsStartup();
+
+  // Mutexes
   ctrlMutex = xSemaphoreCreateMutex();
   lidarMutex = xSemaphoreCreateMutex();
   bufferMutex = xSemaphoreCreateMutex();
-  
-  // NOTE: packetQueue a été supprimé car on traite le LiDAR en direct maintenant
-  
+
   memset(&ctrlData, 0, sizeof(ctrlData));
-  
-  // --- LANCEMENT DES TÂCHES (Correction de ton erreur ici) ---
-  
-  // Priorité 5 (Max) : Nouvelle tâche unique LiDAR optimisée
-  xTaskCreatePinnedToCore(lidarTask, "LidarFast", 4096, NULL, 5, NULL, 1);
-  xTaskCreatePinnedToCore(microRosLidarTask, "microROS_Lidar", 24000, NULL, 5, NULL, 1);
 
-  
-  // Priorité 3 : Moteurs
-  //xTaskCreatePinnedToCore(motorControlTask, "Motors", 4096, NULL, 3, NULL, 1);
-  
-  // Autres tâches
-  xTaskCreatePinnedToCore(imuTask, "microROS_IMU", 8192, NULL, 4, NULL, 0);
+  // Mode navigation naïve activé
+  currentNavMode = NAV_NAIVE;
 
-  //xTaskCreatePinnedToCore(speedEstimatorTask, "SpeedEst", 4096, NULL, 4, NULL, 1);
-  //xTaskCreatePinnedToCore(communicationTask, "ESPNOW", 4096, NULL, 2, NULL, 0);
-  //xTaskCreatePinnedToCore(streamingTask, "TCPStream", 8192, NULL, 1, NULL, 0);
+  Serial.printf("[MEM] Free heap before tasks: %u bytes\n", ESP.getFreeHeap());
 
-  Serial.println("\n=== SYSTEM READY ===\n");
-  digitalWrite(LED_PIN, HIGH);
+  // ===== TÂCHES =====
+  xTaskCreatePinnedToCore(lidarTask, "LidarTask", 4096, NULL, 5, NULL, 1);
+  xTaskCreatePinnedToCore(microRosLidarTask, "uRosLidar", 24000, NULL, 5, NULL,
+                          1);
+  xTaskCreatePinnedToCore(imuTask, "ImuTask", 8192, NULL, 4, NULL, 0);
+  xTaskCreatePinnedToCore(motorControlTask, "Motors", 4096, NULL, 3, NULL, 1);
+  xTaskCreatePinnedToCore(naiveNavigationTask, "NavNaive", 4096, NULL, 2, NULL,
+                          1);
+
+  Serial.printf("[MEM] Free heap after tasks: %u bytes\n", ESP.getFreeHeap());
+  Serial.println("=== SYSTEM READY ===");
 }
 
 void loop() {
-  // Statut toutes les 2s
-  static unsigned long lastStats = 0;
-  if (millis() - lastStats > 2000) {
-     if(obstacleDetected) Serial.println("!!! OBSTACLE !!!");
-     lastStats = millis();
+  static unsigned long lastHealthCheck = 0;
+  if (millis() - lastHealthCheck > 10000) {
+    lastHealthCheck = millis();
+    Serial.printf(
+        "[HEALTH] Heap: %u | Obstacle: %s | MinDist: %d | LiDAR pts: %d\n",
+        ESP.getFreeHeap(), obstacleDetected ? "YES" : "no", minObstacleDistance,
+        pointsAvailable);
   }
-  vTaskDelay(100);
+  vTaskDelay(pdMS_TO_TICKS(500));
 }
