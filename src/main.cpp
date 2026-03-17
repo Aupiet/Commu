@@ -4,6 +4,8 @@
 #include "lidar_manager.h"
 #include "motor_control.h"
 #include "naive_navigation.h"
+#include "pure_pursuit.h"
+#include "planner.h"
 
 
 #include <Arduino.h>
@@ -55,7 +57,9 @@ void setup() {
   // Test moteurs
   testMotorsStartup();
 
-  // Mutexes
+  setTestGrid();
+
+  // Mutex
   ctrlMutex = xSemaphoreCreateMutex();
   lidarMutex = xSemaphoreCreateMutex();
   bufferMutex = xSemaphoreCreateMutex();
@@ -69,12 +73,14 @@ void setup() {
 
   // ===== TÂCHES =====
   xTaskCreatePinnedToCore(lidarTask, "LidarTask", 4096, NULL, 5, NULL, 1);
-  xTaskCreatePinnedToCore(microRosLidarTask, "uRosLidar", 24000, NULL, 5, NULL,
-                          1);
+  xTaskCreatePinnedToCore(microRosLidarTask, "uRosLidar", 24000, NULL, 5, NULL,1);
   xTaskCreatePinnedToCore(imuTask, "ImuTask", 8192, NULL, 4, NULL, 0);
   xTaskCreatePinnedToCore(motorControlTask, "Motors", 4096, NULL, 3, NULL, 1);
-  xTaskCreatePinnedToCore(naiveNavigationTask, "NavNaive", 4096, NULL, 2, NULL,
-                          1);
+  xTaskCreatePinnedToCore(naiveNavigationTask, "NavNaive", 4096, NULL, 2, NULL,1);
+  xTaskCreatePinnedToCore(purePursuitTask, "PurePursuit",4096,NULL,2,NULL,1);
+
+  /// A ne pas utiliser (déjà présent en python)
+  //xTaskCreatePinnedToCore(plannerTask, "planner", 4096, NULL, 1, NULL, 1);
 
   Serial.printf("[MEM] Free heap after tasks: %u bytes\n", ESP.getFreeHeap());
   Serial.println("=== SYSTEM READY ===");

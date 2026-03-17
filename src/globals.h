@@ -3,6 +3,20 @@
 
 #include "config.h"
 
+typedef struct {
+  float x;
+  float y;
+  float theta;
+} RobotPose;
+
+extern RobotPose robotPose;
+
+// Pour algorithme A* et Djikstra
+extern int robot_x;
+extern int robot_y;
+extern int goal_x;
+extern int goal_y;
+
 // #include "speed_estimator.h"
 //  Ajouter dans la section "Control data" :
 // extern SpeedEstimate estimatedSpeed;

@@ -33,3 +33,5 @@ unsigned long lastLidarUpdate = 0;
 unsigned long lastOledUpdate = 0;
 
 uint32_t sentFeedback = 0;
+
+RobotPose robotPose = {0.0f, 0.0f, 0.0f};

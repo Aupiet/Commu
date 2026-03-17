@@ -52,6 +52,25 @@ extern uint8_t esp01Address[6];
 #define MOTOR_CHANNEL_A 5
 #define MOTOR_CHANNEL_B 6
 
+
+// ============================================================
+// PURE PURSUIT PARAMETERS
+// ============================================================
+
+#define PP_LOOKAHEAD_DIST 0.6f
+#define PP_WHEELBASE 0.23f
+
+#define PP_KP 2.0f
+#define PP_KI 0.0f
+#define PP_KD 0.15f
+
+#define PP_DT 0.02f
+
+#define PP_BASE_SPEED 160
+#define PP_STEERING_GAIN 120
+
+#define PP_TASK_PERIOD_MS 20
+
 // Mode de navigation
 enum NavMode {
   NAV_NAIVE, // Navigation naïve (obstacle avoidance)
