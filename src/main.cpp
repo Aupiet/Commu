@@ -16,7 +16,6 @@
 #define PASS "3011906andy"
 #define AGENT_IP "192.168.137.205"
 #define AGENT_PORT 8888
-#define NAV_AUTONOMOUS 1
 
 // ===== TEST MOTEURS AU DÉMARRAGE =====
 
@@ -100,16 +99,6 @@ void loop() {
         "[HEALTH] Heap: %u | Obstacle: %s | MinDist: %d | LiDAR pts: %d\n",
         ESP.getFreeHeap(), obstacleDetected ? "YES" : "no", minObstacleDistance,
         pointsAvailable);
-  }
-  if (currentNavMode == NAV_NAIVE)
-  {
-      if (millis() - startTime > 60000) // 1 min = tour approx, Temporaire le temps de trouver le temps réel pour un tour
-
-      {
-          Serial.println("[MODE] Switch to AUTONOMOUS");
-
-          currentNavMode = NAV_AUTONOMOUS;
-      }
   }
   vTaskDelay(pdMS_TO_TICKS(500));
 }

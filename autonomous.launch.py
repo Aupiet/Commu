@@ -1,28 +1,22 @@
 import os
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription, ExecuteProcess, LogInfo
-from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.actions import ExecuteProcess, LogInfo
 from launch_ros.actions import Node
-from ament_index_python.packages import get_package_share_directory
 
 def generate_launch_description():
-    
-    # Chemin vers le fichier de configuration YAML créé à l'étape 1
-    # Assurez-vous que le chemin est correct ! Ici : ~/Documents/slam_params.yaml
+    home = os.getenv('HOME')
     config_file = os.path.join(os.getenv('HOME'), 'Documents', 'ekf_params.yaml')
     ekf_config_file = os.path.join(os.getenv('HOME'), 'Documents', 'ekf_params.yaml')
 
     return LaunchDescription([
-        
-        # === MESSAGE IMPORTANT POUR LA SYNCHRO ===
-        LogInfo(msg="""
+        # ============================================================
+        # INFO DE DÉMARRAGE
+        # ============================================================
+        LogInfo(msg=f"""
         ===============================================================
-        ATTENTION - PROCÉDURE DE SYNCHRONISATION REQUISE :
-        1. Lancez ce fichier.
-        2. Attendez que l'agent Micro-ROS dise 'Listening on port 8888'.
-        3. APPUYEZ SUR LE BOUTON 'RESET' DU ROBOT.
-        
-        Si vous ne faites pas ça, la map restera vide (Problème 1970).
+        MODE AUTONOMIE
+        Carte chargée depuis :
+        {os.path.join(home, 'Documents', 'maps', 'circuit_map.yaml')}
         ===============================================================
         """),
 
@@ -67,29 +61,44 @@ def generate_launch_description():
             parameters=[ekf_config_file]
         ),
 
-        # MAP SERVER (chargement de la map)
+        # ============================================================
+        # 5. MAP SERVER (publication de la carte pour localisation & RViz)
+        # ============================================================
         Node(
-            package='nav2_map_server',
-            executable='map_server',
-            name='map_server',
-            parameters=[{
-                'yaml_filename': '/home/user/Documents/Carte.yaml'
-            }],
+	    package='slam_toolbox',
+	    executable='async_slam_toolbox_node',
+	    name='slam_toolbox',
+	    parameters=[{
+		'mode': 'localization',
+		'map_file': os.path.join(home, 'Documents/maps/circuit_map.yaml'),
+		'use_sim_time': False
+	    }],
+	    output='screen'
+	),
+
+        # ============================================================
+        # 6. NAV2 : navigation complète
+        # ============================================================
+        ExecuteProcess(
+            cmd=[
+                'ros2', 'launch', 'nav2_bringup', 'navigation_launch.py', 'map:Documents/maps/circuit_map.yaml'
+            ],
             output='screen'
         ),
 
-        # LOCALISATION (AMCL)
-        Node(
-            package='nav2_amcl',
-            executable='amcl',
-            name='amcl',
-            output='screen'
-        ),
-
-        # RViz
+        # ============================================================
+        # 7. RViz2 : vue Nav2 par défaut
+        # ============================================================
         Node(
             package='rviz2',
             executable='rviz2',
+            arguments=[
+                '-d',
+                os.path.join(
+                    home,
+                    'nav2_ws/src/navigation2/nav2_bringup/rviz/nav2_default_view.rviz'
+                )
+            ],
             output='screen'
         )
     ])

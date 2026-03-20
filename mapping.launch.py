@@ -1,6 +1,6 @@
 import os
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription, ExecuteProcess, LogInfo
+from launch.actions import IncludeLaunchDescription, ExecuteProcess, LogInfo, TimerAction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
@@ -83,17 +83,18 @@ def generate_launch_description():
             executable='rviz2',
             name='rviz2',
             arguments=['-d', os.path.join(get_package_share_directory('slam_toolbox'), 'config', 'slam_toolbox_default.rviz')]
-        )
-        """
-        #7 Sauvegarde automatique
-        Node(
-            package='nav2_map_server',
-            executable='map_server_cli',
-            name='save_map_node',
-            parameters=[
-                {'save_delay': 60.0},   # durée du tour
-                {'map_name': '/home/user/Documents/Carte'}  # nom fichier
-            ],
-            output='screen'
-        )"""
+        ),
+        
+        #7. Sauvegarde automatique
+        ExecuteProcess(
+	    cmd=[
+		'bash', '-c',
+		'while true; do '
+		'echo "=== Sauvegarde de la map ==="; '
+		'ros2 run nav2_map_server map_saver_cli -f $HOME/Documents/maps/circuit_map; '
+		'sleep 10; '
+		'done'
+	    ],
+	    output='screen'
+	)
     ])

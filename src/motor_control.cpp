@@ -105,7 +105,7 @@ void setMotorSpeedFromJoystick(int joyX, int joyY) {
   currentSpeedPWM = (pwmLeft + pwmRight) / 2;
 }
 
-void motorControlTask(void *pvParameters) {
+/*void motorControlTask(void *pvParameters) {
   TickType_t xLastWakeTime = xTaskGetTickCount();
   const TickType_t xFrequency = pdMS_TO_TICKS(20); // 50Hz control loop
 
@@ -128,7 +128,7 @@ void motorControlTask(void *pvParameters) {
     // Boucle régulière
     vTaskDelayUntil(&xLastWakeTime, xFrequency);
   }
-}
+}*/
 
 void motorControlTask(void *pvParameters) {
   TickType_t xLastWakeTime = xTaskGetTickCount();

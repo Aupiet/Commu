@@ -12,12 +12,9 @@ typedef struct {
 /// Gestion de mode : Passer du mode reconnaissance àfull autonomie sans action extérieure
 typedef enum
 {
-    NAV_NAIVE = 0,
-    NAV_SLAM,        // ton ancien mode
-    NAV_AUTONOMOUS   // ← nouveau (Nav2)
+    NAV_NAIVE,
+    NAV_AUTONOMOUS // ← nouveau (Nav2)
 } NavMode;
-
-extern NavMode currentNavMode;
 
 extern RobotPose robotPose;
 

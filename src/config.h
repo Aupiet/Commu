@@ -71,12 +71,6 @@ extern uint8_t esp01Address[6];
 
 #define PP_TASK_PERIOD_MS 20
 
-// Mode de navigation
-enum NavMode {
-  NAV_NAIVE, // Navigation naïve (obstacle avoidance)
-  NAV_SLAM   // Navigation SLAM + A* (futur)
-};
-
 // Commande moteur directe (remplace le joystick)
 struct MotorCommand {
   int leftPWM;  // -255 à +255

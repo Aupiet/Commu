@@ -33,11 +33,12 @@ volatile bool microRosReady = false;
 rcl_subscription_t cmd_vel_sub;
 geometry_msgs__msg__Twist cmd_vel_msg;
 
+//Gestion de mode
 static rcl_subscription_t navmode_sub;
-static std_msgs__msg__Int32 navmode_msg;
+static std_msgs__msg__Bool navmode_msg;
 
 static void navModeCallback(const void *msgin) {
-  const std_msgs__msg__Int32 *msg = (const std_msgs__msg__Int32 *)msgin;
+  const std_msgs__msg__Bool *msg = (const std_msgs__msg__Bool*)msgin;
   currentNavMode = (NavMode)msg->data;
   Serial.printf("[MODE] %d\n", currentNavMode);
 }
@@ -244,7 +245,7 @@ void microRosLidarTask(void *pv) {
   rclc_subscription_init_default(
     &navmode_sub,
     &uros_node,
-    ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Int32),
+    ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Bool),
     "/nav_mode");
 
   rclc_executor_add_subscription(
