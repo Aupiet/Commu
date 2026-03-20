@@ -231,13 +231,12 @@ void naiveNavigationTask(void *pvParameters) {
   vTaskDelay(pdMS_TO_TICKS(3000));
   Serial.println("[NAV] Naive navigation task started");
 
-  bool wasEnabled = false;
+  bool wasActive = false;
 
   while (true) {
-    // --- Vérifier activation via /naif ---
+    // --- 1) Override manuel : /naif = false → tout stop ---
     if (!naifEnabled) {
-      if (wasEnabled) {
-        // Arrêter les moteurs ET remettre la commande à zéro
+      if (wasActive) {
         stopMotors();
         if (xSemaphoreTake(ctrlMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
           motorCmd.leftPWM = 0;
@@ -246,15 +245,33 @@ void naiveNavigationTask(void *pvParameters) {
           xSemaphoreGive(ctrlMutex);
         }
         Serial.println("[NAV] Stopped (naif disabled)");
-        wasEnabled = false;
+        wasActive = false;
       }
       vTaskDelay(pdMS_TO_TICKS(200));
       continue;
     }
 
-    if (!wasEnabled) {
-      Serial.println("[NAV] Started (naif enabled)");
-      wasEnabled = true;
+    // --- 2) Auto-switch : A* actif → vérifier timeout ---
+    if (currentNavMode == NAV_SLAM) {
+      if (millis() - lastDirectionCmdTime > NAV_ASTAR_TIMEOUT_MS) {
+        // Timeout expiré → retour en Naive
+        currentNavMode = NAV_NAIVE;
+        Serial.println("[NAV] A* timeout -> back to Naive");
+      } else {
+        // A* toujours actif, ne pas interférer
+        if (wasActive) {
+          Serial.println("[NAV] Paused (A* active)");
+          wasActive = false;
+        }
+        vTaskDelay(pdMS_TO_TICKS(200));
+        continue;
+      }
+    }
+
+    // --- 3) Mode Naive actif ---
+    if (!wasActive) {
+      Serial.println("[NAV] Started (Naive mode)");
+      wasActive = true;
     }
 
     float heading = computeNaiveHeading();

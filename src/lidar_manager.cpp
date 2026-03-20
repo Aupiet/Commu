@@ -9,6 +9,7 @@
 #include <sensor_msgs/msg/imu.h>
 #include <sensor_msgs/msg/laser_scan.h>
 #include <std_msgs/msg/bool.h>
+#include <geometry_msgs/msg/twist.h>
 
 HardwareSerial lidarSerial(1);
 
@@ -19,6 +20,10 @@ static sensor_msgs__msg__LaserScan scan_msg;
 // Subscriber /naif
 static rcl_subscription_t naif_sub;
 static std_msgs__msg__Bool naif_msg;
+
+// Subscriber /cmd_vel
+static rcl_subscription_t cmdvel_sub;
+static geometry_msgs__msg__Twist cmdvel_msg;
 
 // Partagés avec imuTask
 rcl_publisher_t imu_pub;
@@ -38,6 +43,30 @@ static void naifCallback(const void *msgin) {
     naifEnabled = false;
     Serial.println("[NAIF] Disabled (received false)");
   }
+}
+
+// Callback /cmd_vel : commandes de direction A*
+static void cmdVelCallback(const void *msgin) {
+  const geometry_msgs__msg__Twist *msg = (const geometry_msgs__msg__Twist *)msgin;
+
+  float linear  = msg->linear.x;   // m/s  (avant/arrière)
+  float angular = msg->angular.z;   // rad/s (rotation)
+
+  // Arcade mixing → PWM (-255..+255)
+  int leftPWM  = constrain((int)((linear - angular) * 255.0f), -255, 255);
+  int rightPWM = constrain((int)((linear + angular) * 255.0f), -255, 255);
+
+  if (xSemaphoreTake(ctrlMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+    motorCmd.leftPWM  = leftPWM;
+    motorCmd.rightPWM = rightPWM;
+    motorCmd.timestamp = millis();
+    xSemaphoreGive(ctrlMutex);
+  }
+
+  lastDirectionCmdTime = millis();
+  currentNavMode = NAV_SLAM;
+
+  Serial.printf("[A*] cmd_vel: L=%d R=%d\n", leftPWM, rightPWM);
 }
 
 // ===== PARAMÈTRES =====
@@ -168,7 +197,7 @@ void microRosLidarTask(void *pv) {
   rclc_node_init_default(&uros_node, "esp32_node", "", &uros_support);
   Serial.println("[uROS] Node OK");
 
-  rclc_executor_init(&executor, &uros_support.context, 1, &uros_allocator);
+  rclc_executor_init(&executor, &uros_support.context, 2, &uros_allocator);
 
   // Scan publisher (default = reliable, comme dans le code qui marchait)
   rclc_publisher_init_default(
@@ -189,6 +218,14 @@ void microRosLidarTask(void *pv) {
   rclc_executor_add_subscription(&executor, &naif_sub, &naif_msg, &naifCallback,
                                  ON_NEW_DATA);
   Serial.println("[uROS] /naif subscriber OK");
+
+  // Subscriber /cmd_vel (Twist)
+  rclc_subscription_init_default(
+      &cmdvel_sub, &uros_node,
+      ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Twist), "/cmd_vel");
+  rclc_executor_add_subscription(&executor, &cmdvel_sub, &cmdvel_msg,
+                                 &cmdVelCallback, ON_NEW_DATA);
+  Serial.println("[uROS] /cmd_vel subscriber OK");
 
   microRosReady = true;
   Serial.println("[uROS] microRosReady = true");

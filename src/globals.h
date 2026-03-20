@@ -19,6 +19,7 @@ extern NavMode currentNavMode;
 extern volatile int currentSpeedPWM;
 extern volatile int currentDirection;
 extern volatile bool naifEnabled;
+extern volatile unsigned long lastDirectionCmdTime;
 
 // LiDAR data
 extern LidarPoint pointBuffer[POINT_BUFFER_SIZE];

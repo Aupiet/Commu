@@ -58,6 +58,9 @@ enum NavMode {
   NAV_SLAM   // Navigation SLAM + A* (futur)
 };
 
+// Timeout A* → retour en Naive (ms)
+#define NAV_ASTAR_TIMEOUT_MS 1000
+
 // Commande moteur directe (remplace le joystick)
 struct MotorCommand {
   int leftPWM;  // -255 à +255
