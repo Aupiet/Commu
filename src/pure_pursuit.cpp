@@ -112,54 +112,61 @@ void purePursuitTask(void *pvParameters)
 
     while (true)
     {
-        if (currentNavMode != NAV_SLAM)
-        {
-            vTaskDelay(pdMS_TO_TICKS(200));
-            continue;
-        }
+    // ✅ Actif uniquement en mode autonome
+    if (currentNavMode != NAV_AUTONOMOUS)
+    {
+        vTaskDelay(pdMS_TO_TICKS(200));
+        continue;
+    }
 
-        float x = robotPose.x;
-        float y = robotPose.y;
+    // ✅ Sécurité : pas de trajectoire
+    if (pathLength == 0)
+    {
+        Serial.println("[PP] No path available");
+        vTaskDelay(pdMS_TO_TICKS(200));
+        continue;
+    }
 
-        // conversion degrés → radians
-        float theta = robotPose.theta * 0.0174532925f;
+    float x = robotPose.x;
+    float y = robotPose.y;
 
-        float heading =
-            computePurePursuitHeading(x, y, theta);
+    float theta = robotPose.theta * 0.0174532925f;
 
-        int leftPWM = 0;
-        int rightPWM = 0;
+    float heading =
+        computePurePursuitHeading(x, y, theta);
 
-        computeMotorCommand(
-            heading,
-            &leftPWM,
-            &rightPWM
-        );
+    int leftPWM = 0;
+    int rightPWM = 0;
 
-        // sécurité obstacle
-        if(obstacleDetected)
-        {
-            leftPWM = -120;
-            rightPWM = 120;
-        }
+    computeMotorCommand(
+        heading,
+        &leftPWM,
+        &rightPWM
+    );
 
-        if (xSemaphoreTake(ctrlMutex, pdMS_TO_TICKS(5)) == pdTRUE)
-        {
-            motorCmd.leftPWM = leftPWM;
-            motorCmd.rightPWM = rightPWM;
-            motorCmd.timestamp = millis();
+    if(obstacleDetected)
+    {
+        leftPWM = -120;
+        rightPWM = 120;
+    }
 
-            xSemaphoreGive(ctrlMutex);
-        }
+    if (xSemaphoreTake(ctrlMutex, pdMS_TO_TICKS(5)) == pdTRUE)
+    {
+        motorCmd.leftPWM = leftPWM;
+        motorCmd.rightPWM = rightPWM;
+        motorCmd.timestamp = millis();
 
-        Serial.printf(
-            "[PP] wp=%d h=%.2f L=%d R=%d\n",
-            currentWaypoint,
-            heading,
-            leftPWM,
-            rightPWM
-        );
+        xSemaphoreGive(ctrlMutex);
+    }
 
-        vTaskDelay(pdMS_TO_TICKS(PP_TASK_PERIOD_MS));
+    Serial.printf(
+        "[PP] wp=%d h=%.2f L=%d R=%d\n",
+        currentWaypoint,
+        heading,
+        leftPWM,
+        rightPWM
+    );
+
+    vTaskDelay(pdMS_TO_TICKS(PP_TASK_PERIOD_MS));
     }
 }

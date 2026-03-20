@@ -234,10 +234,27 @@ void naiveNavigationTask(void *pvParameters) {
   bool wasEnabled = false;
 
   while (true) {
+
+    // MODIF CRITIQUE : désactiver si Nav2 actif
+    if (currentNavMode == NAV_AUTONOMOUS) {
+      if (wasEnabled) {
+        stopMotors();
+        if (xSemaphoreTake(ctrlMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+          motorCmd.leftPWM = 0;
+          motorCmd.rightPWM = 0;
+          motorCmd.timestamp = millis();
+          xSemaphoreGive(ctrlMutex);
+        }
+        Serial.println("[NAV] Disabled (Nav2 active)");
+        wasEnabled = false;
+      }
+      vTaskDelay(pdMS_TO_TICKS(200));
+      continue;
+    }
+
     // --- Vérifier activation via /naif ---
     if (!naifEnabled) {
       if (wasEnabled) {
-        // Arrêter les moteurs ET remettre la commande à zéro
         stopMotors();
         if (xSemaphoreTake(ctrlMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
           motorCmd.leftPWM = 0;
@@ -262,24 +279,23 @@ void naiveNavigationTask(void *pvParameters) {
     int leftPWM = 0;
     int rightPWM = 0;
 
-    // Vérifier d'abord si obstacle DEVANT trop proche → spin forcé
     uint16_t frontCheck = getAveragedDist(0);
     bool frontBlocked = (frontCheck < NAV_STOP_DISTANCE_MM);
 
     if (heading == NAV_NO_PATH || frontBlocked) {
-      // BLOQUÉ : tourner à gauche sur place (pas d'arrêt !)
       leftPWM = -NAV_SPIN_PWM;
       rightPWM = NAV_SPIN_PWM;
       Serial.printf("[NAV] Spin left (front=%dmm)\n", frontCheck);
     } else {
-      // Vitesse adaptative basée sur l'obstacle le plus proche devant
-      uint16_t frontDist = getAveragedDist(0); // Distance droit devant
+
+      uint16_t frontDist = getAveragedDist(0);
       int mapIdx = (int)heading;
       if (mapIdx < 0)
         mapIdx += 360;
+
       uint16_t headingDist = getAveragedDist(mapIdx);
-      // Prendre la distance la plus courte pour ralentir au max
       uint16_t minDist = (frontDist < headingDist) ? frontDist : headingDist;
+
       int speed = computeAdaptiveSpeed(minDist);
 
       if (fabsf(heading) < 3.0f) {
@@ -295,12 +311,11 @@ void naiveNavigationTask(void *pvParameters) {
         leftPWM = constrain(leftPWM, -255, 255);
         rightPWM = constrain(rightPWM, -255, 255);
 
-        Serial.printf("[NAV] h=%.0f spd=%d L=%d R=%d\n", heading, speed,
-                      leftPWM, rightPWM);
+        Serial.printf("[NAV] h=%.0f spd=%d L=%d R=%d\n",
+                      heading, speed, leftPWM, rightPWM);
       }
     }
 
-    // Écrire la commande moteur (toujours, même en spin)
     if (xSemaphoreTake(ctrlMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
       motorCmd.leftPWM = leftPWM;
       motorCmd.rightPWM = rightPWM;

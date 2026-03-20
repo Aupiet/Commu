@@ -5,7 +5,7 @@
 #include "motor_control.h"
 #include "naive_navigation.h"
 #include "pure_pursuit.h"
-#include "planner.h"
+//#include "planner.h"
 
 
 #include <Arduino.h>
@@ -18,6 +18,9 @@
 #define AGENT_PORT 8888
 
 // ===== TEST MOTEURS AU DÉMARRAGE =====
+
+static unsigned long startTime = 0; //Temporaire, le temps de trouver le temps de parcours pour un circuit
+
 void testMotorsStartup() {
   delay(500);
 
@@ -41,6 +44,7 @@ void testMotorsStartup() {
 
 void setup() {
   delay(2000);
+  startTime = millis();
   Serial.begin(115200);
   Serial.println("=== ESP32 WAVE ROVER START ===");
   Serial.printf("[MEM] Free heap: %u bytes\n", ESP.getFreeHeap());
@@ -57,7 +61,8 @@ void setup() {
   // Test moteurs
   testMotorsStartup();
 
-  setTestGrid();
+  /* A ne pas utiliser : saturation core */
+  //setTestGrid();
 
   // Mutex
   ctrlMutex = xSemaphoreCreateMutex();
@@ -94,6 +99,16 @@ void loop() {
         "[HEALTH] Heap: %u | Obstacle: %s | MinDist: %d | LiDAR pts: %d\n",
         ESP.getFreeHeap(), obstacleDetected ? "YES" : "no", minObstacleDistance,
         pointsAvailable);
+  }
+  if (currentNavMode == NAV_NAIVE)
+  {
+      if (millis() - startTime > 60000) // 1 min = tour approx, Temporaire le temps de trouver le temps réel pour un tour
+
+      {
+          Serial.println("[MODE] Switch to AUTONOMOUS");
+
+          currentNavMode = NAV_AUTONOMOUS;
+      }
   }
   vTaskDelay(pdMS_TO_TICKS(500));
 }

@@ -9,7 +9,18 @@ typedef struct {
   float theta;
 } RobotPose;
 
+/// Gestion de mode : Passer du mode reconnaissance àfull autonomie sans action extérieure
+typedef enum
+{
+    NAV_NAIVE = 0,
+    NAV_SLAM,        // ton ancien mode
+    NAV_AUTONOMOUS   // ← nouveau (Nav2)
+} NavMode;
+
+extern NavMode currentNavMode;
+
 extern RobotPose robotPose;
+
 
 // Pour algorithme A* et Djikstra
 extern int robot_x;

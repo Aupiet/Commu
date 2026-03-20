@@ -9,6 +9,7 @@
 #include <sensor_msgs/msg/imu.h>
 #include <sensor_msgs/msg/laser_scan.h>
 #include <std_msgs/msg/bool.h>
+#include <geometry_msgs/msg/twist.h>
 
 HardwareSerial lidarSerial(1);
 
@@ -27,6 +28,38 @@ rcl_node_t uros_node;
 rclc_support_t uros_support;
 rcl_allocator_t uros_allocator;
 volatile bool microRosReady = false;
+
+//Ajout full autonome
+rcl_subscription_t cmd_vel_sub;
+geometry_msgs__msg__Twist cmd_vel_msg;
+
+
+void cmd_vel_callback(const void *msgin)
+{
+    const geometry_msgs__msg__Twist *msg =
+        (const geometry_msgs__msg__Twist *)msgin;
+
+    if (currentNavMode != NAV_AUTONOMOUS)
+        return;
+
+    float linear  = msg->linear.x;
+    float angular = msg->angular.z;
+
+    int left  = (int)(linear * 200.0f - angular * 100.0f);
+    int right = (int)(linear * 200.0f + angular * 100.0f);
+
+    left  = constrain(left, -255, 255);
+    right = constrain(right, -255, 255);
+
+    if (xSemaphoreTake(ctrlMutex, pdMS_TO_TICKS(5)) == pdTRUE)
+    {
+        motorCmd.leftPWM  = left;
+        motorCmd.rightPWM = right;
+        motorCmd.timestamp = millis();
+
+        xSemaphoreGive(ctrlMutex);
+    }
+}
 
 // Callback /naif : 1 = démarrer naïf, 0 = arrêter
 static void naifCallback(const void *msgin) {
@@ -189,6 +222,16 @@ void microRosLidarTask(void *pv) {
   rclc_executor_add_subscription(&executor, &naif_sub, &naif_msg, &naifCallback,
                                  ON_NEW_DATA);
   Serial.println("[uROS] /naif subscriber OK");
+
+  rclc_subscription_init_default(
+    &cmd_vel_sub,
+    &uros_node,
+    ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Twist),
+    "/cmd_vel");
+  rclc_executor_add_subscription(&executor,&cmd_vel_sub,&cmd_vel_msg,&cmd_vel_callback,
+    ON_NEW_DATA);
+      Serial.println("[uROS] /cmd_vel subscriber OK");
+
 
   microRosReady = true;
   Serial.println("[uROS] microRosReady = true");
