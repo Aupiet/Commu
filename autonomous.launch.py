@@ -73,7 +73,7 @@ def generate_launch_description():
             executable='map_server',
             name='map_server',
             parameters=[{
-                'yaml_filename': 'Carte.yaml'
+                'yaml_filename': '/home/user/Documents/Carte.yaml'
             }],
             output='screen'
         ),
@@ -91,5 +91,5 @@ def generate_launch_description():
             package='rviz2',
             executable='rviz2',
             output='screen'
-        ),
+        )
     ])

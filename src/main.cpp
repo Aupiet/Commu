@@ -16,6 +16,7 @@
 #define PASS "3011906andy"
 #define AGENT_IP "192.168.137.205"
 #define AGENT_PORT 8888
+#define NAV_AUTONOMOUS 1
 
 // ===== TEST MOTEURS AU DÉMARRAGE =====
 
@@ -71,7 +72,7 @@ void setup() {
 
   memset(&ctrlData, 0, sizeof(ctrlData));
 
-  // Mode navigation naïve activé
+  // Mode navigation naïve activé par défaut
   currentNavMode = NAV_NAIVE;
 
   Serial.printf("[MEM] Free heap before tasks: %u bytes\n", ESP.getFreeHeap());

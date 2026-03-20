@@ -7,31 +7,22 @@
 
 #include <math.h>
 
-// ============================================================
-// Waypoints du circuit
-// ============================================================
-
 #define MAX_WAYPOINTS 2000
 
 extern Point path[];
 extern int pathLength;
 static int currentWaypoint = 0;
 
-// ============================================================
-// PID direction
-// ============================================================
-
 static PID steeringPID;
 
 // ============================================================
-// Trouver waypoint lookahead
+// Lookahead
 // ============================================================
-
 static int findLookaheadIndex(float x, float y)
 {
     for (int i = currentWaypoint; i < pathLength; i++)
     {
-        float wx = path[i].x * 0.05f; // conversion grille → mètres
+        float wx = path[i].x * 0.05f;
         float wy = path[i].y * 0.05f;
 
         float dx = wx - x;
@@ -47,19 +38,16 @@ static int findLookaheadIndex(float x, float y)
 }
 
 // ============================================================
-// Calcul angle Pure Pursuit
+// Heading
 // ============================================================
-
 static float computePurePursuitHeading(float x, float y, float theta)
 {
-    if(pathLength == 0)
+    if (pathLength == 0)
         return 0;
 
     int idx = findLookaheadIndex(x, y);
-
     currentWaypoint = idx;
 
-    //Value 0.05f à changer en fonction de la distance réelle
     float wx = path[idx].x * 0.05f;
     float wy = path[idx].y * 0.05f;
 
@@ -79,9 +67,8 @@ static float computePurePursuitHeading(float x, float y, float theta)
 }
 
 // ============================================================
-// Calcul moteurs avec PID
+// PID moteurs
 // ============================================================
-
 static void computeMotorCommand(float heading, int *leftPWM, int *rightPWM)
 {
     int baseSpeed = PP_BASE_SPEED;
@@ -99,9 +86,8 @@ static void computeMotorCommand(float heading, int *leftPWM, int *rightPWM)
 }
 
 // ============================================================
-// Task FreeRTOS
+// TASK
 // ============================================================
-
 void purePursuitTask(void *pvParameters)
 {
     vTaskDelay(pdMS_TO_TICKS(3000));
@@ -112,61 +98,51 @@ void purePursuitTask(void *pvParameters)
 
     while (true)
     {
-    // ✅ Actif uniquement en mode autonome
-    if (currentNavMode != NAV_AUTONOMOUS)
-    {
-        vTaskDelay(pdMS_TO_TICKS(200));
-        continue;
-    }
+        // ✅ UNIQUEMENT mode autonome
+        if (currentNavMode != NAV_AUTONOMOUS)
+        {
+            vTaskDelay(pdMS_TO_TICKS(200));
+            continue;
+        }
 
-    // ✅ Sécurité : pas de trajectoire
-    if (pathLength == 0)
-    {
-        Serial.println("[PP] No path available");
-        vTaskDelay(pdMS_TO_TICKS(200));
-        continue;
-    }
+        // ✅ Sécurité : pas de chemin
+        if (pathLength == 0)
+        {
+            Serial.println("[PP] No path");
+            vTaskDelay(pdMS_TO_TICKS(200));
+            continue;
+        }
 
-    float x = robotPose.x;
-    float y = robotPose.y;
+        float x = robotPose.x;
+        float y = robotPose.y;
+        float theta = robotPose.theta * 0.0174532925f;
 
-    float theta = robotPose.theta * 0.0174532925f;
+        float heading =
+            computePurePursuitHeading(x, y, theta);
 
-    float heading =
-        computePurePursuitHeading(x, y, theta);
+        int leftPWM = 0;
+        int rightPWM = 0;
 
-    int leftPWM = 0;
-    int rightPWM = 0;
+        computeMotorCommand(heading, &leftPWM, &rightPWM);
 
-    computeMotorCommand(
-        heading,
-        &leftPWM,
-        &rightPWM
-    );
+        // Sécurité obstacle
+        if (obstacleDetected)
+        {
+            leftPWM = -120;
+            rightPWM = 120;
+        }
 
-    if(obstacleDetected)
-    {
-        leftPWM = -120;
-        rightPWM = 120;
-    }
+        if (xSemaphoreTake(ctrlMutex, pdMS_TO_TICKS(5)) == pdTRUE)
+        {
+            motorCmd.leftPWM = leftPWM;
+            motorCmd.rightPWM = rightPWM;
+            motorCmd.timestamp = millis();
+            xSemaphoreGive(ctrlMutex);
+        }
 
-    if (xSemaphoreTake(ctrlMutex, pdMS_TO_TICKS(5)) == pdTRUE)
-    {
-        motorCmd.leftPWM = leftPWM;
-        motorCmd.rightPWM = rightPWM;
-        motorCmd.timestamp = millis();
+        Serial.printf("[PP] wp=%d h=%.2f L=%d R=%d\n",
+                      currentWaypoint, heading, leftPWM, rightPWM);
 
-        xSemaphoreGive(ctrlMutex);
-    }
-
-    Serial.printf(
-        "[PP] wp=%d h=%.2f L=%d R=%d\n",
-        currentWaypoint,
-        heading,
-        leftPWM,
-        rightPWM
-    );
-
-    vTaskDelay(pdMS_TO_TICKS(PP_TASK_PERIOD_MS));
+        vTaskDelay(pdMS_TO_TICKS(PP_TASK_PERIOD_MS));
     }
 }

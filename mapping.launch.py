@@ -84,16 +84,16 @@ def generate_launch_description():
             name='rviz2',
             arguments=['-d', os.path.join(get_package_share_directory('slam_toolbox'), 'config', 'slam_toolbox_default.rviz')]
         )
-        
+        """
         #7 Sauvegarde automatique
         Node(
-            package='ton_package',
-            executable='save_map_node',
+            package='nav2_map_server',
+            executable='map_server_cli',
             name='save_map_node',
             parameters=[
                 {'save_delay': 60.0},   # durée du tour
-                {'map_name': 'Carte'}  # nom fichier
+                {'map_name': '/home/user/Documents/Carte'}  # nom fichier
             ],
             output='screen'
-        ),
+        )"""
     ])
