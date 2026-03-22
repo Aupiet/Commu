@@ -231,19 +231,12 @@ void naiveNavigationTask(void *pvParameters) {
   vTaskDelay(pdMS_TO_TICKS(3000));
   Serial.println("[NAV] Naive navigation task started");
 
-  bool wasEnabled = false;
+  bool wasActive = false;
 
   while (true) {
-
-    // ✅ UNIQUEMENT en mode NAIVE
-    if (currentNavMode != NAV_NAIVE) {
-      vTaskDelay(pdMS_TO_TICKS(200));
-      continue;
-    }
-
-    // --- Vérifier activation via /naif ---
+    // --- 1) Override manuel : /naif = false → tout stop ---
     if (!naifEnabled) {
-      if (wasEnabled) {
+      if (wasActive) {
         stopMotors();
         if (xSemaphoreTake(ctrlMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
           motorCmd.leftPWM = 0;
@@ -252,15 +245,33 @@ void naiveNavigationTask(void *pvParameters) {
           xSemaphoreGive(ctrlMutex);
         }
         Serial.println("[NAV] Stopped (naif disabled)");
-        wasEnabled = false;
+        wasActive = false;
       }
       vTaskDelay(pdMS_TO_TICKS(200));
       continue;
     }
 
-    if (!wasEnabled) {
-      Serial.println("[NAV] Started (naif enabled)");
-      wasEnabled = true;
+    // --- 2) Auto-switch : A* actif → vérifier timeout ---
+    if (currentNavMode == NAV_SLAM) {
+      if (millis() - lastDirectionCmdTime > NAV_ASTAR_TIMEOUT_MS) {
+        // Timeout expiré → retour en Naive
+        currentNavMode = NAV_NAIVE;
+        Serial.println("[NAV] A* timeout -> back to Naive");
+      } else {
+        // A* toujours actif, ne pas interférer
+        if (wasActive) {
+          Serial.println("[NAV] Paused (A* active)");
+          wasActive = false;
+        }
+        vTaskDelay(pdMS_TO_TICKS(200));
+        continue;
+      }
+    }
+
+    // --- 3) Mode Naive actif ---
+    if (!wasActive) {
+      Serial.println("[NAV] Started (Naive mode)");
+      wasActive = true;
     }
 
     float heading = computeNaiveHeading();
@@ -268,32 +279,45 @@ void naiveNavigationTask(void *pvParameters) {
     int leftPWM = 0;
     int rightPWM = 0;
 
+    // Vérifier d'abord si obstacle DEVANT trop proche → spin forcé
     uint16_t frontCheck = getAveragedDist(0);
     bool frontBlocked = (frontCheck < NAV_STOP_DISTANCE_MM);
 
     if (heading == NAV_NO_PATH || frontBlocked) {
+      // BLOQUÉ : tourner à gauche sur place (pas d'arrêt !)
       leftPWM = -NAV_SPIN_PWM;
       rightPWM = NAV_SPIN_PWM;
+      Serial.printf("[NAV] Spin left (front=%dmm)\n", frontCheck);
     } else {
-      uint16_t frontDist = getAveragedDist(0);
+      // Vitesse adaptative basée sur l'obstacle le plus proche devant
+      uint16_t frontDist = getAveragedDist(0); // Distance droit devant
       int mapIdx = (int)heading;
-      if (mapIdx < 0) mapIdx += 360;
-
+      if (mapIdx < 0)
+        mapIdx += 360;
       uint16_t headingDist = getAveragedDist(mapIdx);
+      // Prendre la distance la plus courte pour ralentir au max
       uint16_t minDist = (frontDist < headingDist) ? frontDist : headingDist;
-
       int speed = computeAdaptiveSpeed(minDist);
 
-      float correction = heading * NAV_ANGLE_GAIN;
-      correction = constrain(correction, -(float)speed, (float)speed);
+      if (fabsf(heading) < 3.0f) {
+        leftPWM = speed;
+        rightPWM = speed;
+      } else {
+        float correction = heading * NAV_ANGLE_GAIN;
+        correction = constrain(correction, -(float)speed, (float)speed);
 
-      leftPWM = (int)(speed - correction);
-      rightPWM = (int)(speed + correction);
+        leftPWM = (int)(speed - correction);
+        rightPWM = (int)(speed + correction);
 
-      leftPWM = constrain(leftPWM, -255, 255);
-      rightPWM = constrain(rightPWM, -255, 255);
+        leftPWM = constrain(leftPWM, -255, 255);
+        rightPWM = constrain(rightPWM, -255, 255);
+
+        Serial.printf("[NAV] h=%.0f spd=%d L=%d R=%d\n", heading, speed,
+                      leftPWM, rightPWM);
+      }
     }
 
+    // Écrire la commande moteur (toujours, même en spin)
     if (xSemaphoreTake(ctrlMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
       motorCmd.leftPWM = leftPWM;
       motorCmd.rightPWM = rightPWM;

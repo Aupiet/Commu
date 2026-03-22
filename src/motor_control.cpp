@@ -105,7 +105,7 @@ void setMotorSpeedFromJoystick(int joyX, int joyY) {
   currentSpeedPWM = (pwmLeft + pwmRight) / 2;
 }
 
-/*void motorControlTask(void *pvParameters) {
+void motorControlTask(void *pvParameters) {
   TickType_t xLastWakeTime = xTaskGetTickCount();
   const TickType_t xFrequency = pdMS_TO_TICKS(20); // 50Hz control loop
 
@@ -126,37 +126,6 @@ void setMotorSpeedFromJoystick(int joyX, int joyY) {
     currentSpeedPWM = (leftPWM + rightPWM) / 2;
 
     // Boucle régulière
-    vTaskDelayUntil(&xLastWakeTime, xFrequency);
-  }
-}*/
-
-void motorControlTask(void *pvParameters) {
-  TickType_t xLastWakeTime = xTaskGetTickCount();
-  const TickType_t xFrequency = pdMS_TO_TICKS(20);
-
-  while (true) {
-    int leftPWM = 0, rightPWM = 0;
-
-    if (xSemaphoreTake(ctrlMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
-      leftPWM = motorCmd.leftPWM;
-      rightPWM = motorCmd.rightPWM;
-      xSemaphoreGive(ctrlMutex);
-    }
-
-    // 🔴 MODIF IMPORTANTE
-    if (currentNavMode == NAV_AUTONOMOUS) {
-      // Nav2 contrôle déjà motorCmd → appliquer direct
-      channelBCtrl(leftPWM);
-      channelACtrl(rightPWM);
-    }
-    else {
-      // comportement identique (aucun changement)
-      channelBCtrl(leftPWM);
-      channelACtrl(rightPWM);
-    }
-
-    currentSpeedPWM = (leftPWM + rightPWM) / 2;
-
     vTaskDelayUntil(&xLastWakeTime, xFrequency);
   }
 }

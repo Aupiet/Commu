@@ -21,6 +21,10 @@ static sensor_msgs__msg__LaserScan scan_msg;
 static rcl_subscription_t naif_sub;
 static std_msgs__msg__Bool naif_msg;
 
+// Subscriber /cmd_vel
+static rcl_subscription_t cmdvel_sub;
+static geometry_msgs__msg__Twist cmdvel_msg;
+
 // Partagés avec imuTask
 rcl_publisher_t imu_pub;
 sensor_msgs__msg__Imu imu_msg;
@@ -28,48 +32,6 @@ rcl_node_t uros_node;
 rclc_support_t uros_support;
 rcl_allocator_t uros_allocator;
 volatile bool microRosReady = false;
-
-//Ajout full autonome
-rcl_subscription_t cmd_vel_sub;
-geometry_msgs__msg__Twist cmd_vel_msg;
-
-//Gestion de mode
-static rcl_subscription_t navmode_sub;
-static std_msgs__msg__Bool navmode_msg;
-
-static void navModeCallback(const void *msgin) {
-  const std_msgs__msg__Bool *msg = (const std_msgs__msg__Bool*)msgin;
-  currentNavMode = (NavMode)msg->data;
-  Serial.printf("[MODE] %d\n", currentNavMode);
-}
-
-
-void cmd_vel_callback(const void *msgin)
-{
-    const geometry_msgs__msg__Twist *msg =
-        (const geometry_msgs__msg__Twist *)msgin;
-
-    if (currentNavMode != NAV_AUTONOMOUS)
-        return;
-
-    float linear  = msg->linear.x;
-    float angular = msg->angular.z;
-
-    int left  = (int)(linear * 200.0f - angular * 100.0f);
-    int right = (int)(linear * 200.0f + angular * 100.0f);
-
-    left  = constrain(left, -255, 255);
-    right = constrain(right, -255, 255);
-
-    if (xSemaphoreTake(ctrlMutex, pdMS_TO_TICKS(5)) == pdTRUE)
-    {
-        motorCmd.leftPWM  = left;
-        motorCmd.rightPWM = right;
-        motorCmd.timestamp = millis();
-
-        xSemaphoreGive(ctrlMutex);
-    }
-}
 
 // Callback /naif : 1 = démarrer naïf, 0 = arrêter
 static void naifCallback(const void *msgin) {
@@ -81,6 +43,30 @@ static void naifCallback(const void *msgin) {
     naifEnabled = false;
     Serial.println("[NAIF] Disabled (received false)");
   }
+}
+
+// Callback /cmd_vel : commandes de direction A*
+static void cmdVelCallback(const void *msgin) {
+  const geometry_msgs__msg__Twist *msg = (const geometry_msgs__msg__Twist *)msgin;
+
+  float linear  = msg->linear.x;   // m/s  (avant/arrière)
+  float angular = msg->angular.z;   // rad/s (rotation)
+
+  // Arcade mixing → PWM (-255..+255)
+  int leftPWM  = constrain((int)((linear - angular) * 255.0f), -255, 255);
+  int rightPWM = constrain((int)((linear + angular) * 255.0f), -255, 255);
+
+  if (xSemaphoreTake(ctrlMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+    motorCmd.leftPWM  = leftPWM;
+    motorCmd.rightPWM = rightPWM;
+    motorCmd.timestamp = millis();
+    xSemaphoreGive(ctrlMutex);
+  }
+
+  lastDirectionCmdTime = millis();
+  currentNavMode = NAV_SLAM;
+
+  Serial.printf("[A*] cmd_vel: L=%d R=%d\n", leftPWM, rightPWM);
 }
 
 // ===== PARAMÈTRES =====
@@ -211,7 +197,7 @@ void microRosLidarTask(void *pv) {
   rclc_node_init_default(&uros_node, "esp32_node", "", &uros_support);
   Serial.println("[uROS] Node OK");
 
-  rclc_executor_init(&executor, &uros_support.context, 1, &uros_allocator);
+  rclc_executor_init(&executor, &uros_support.context, 2, &uros_allocator);
 
   // Scan publisher (default = reliable, comme dans le code qui marchait)
   rclc_publisher_init_default(
@@ -233,27 +219,13 @@ void microRosLidarTask(void *pv) {
                                  ON_NEW_DATA);
   Serial.println("[uROS] /naif subscriber OK");
 
+  // Subscriber /cmd_vel (Twist)
   rclc_subscription_init_default(
-    &cmd_vel_sub,
-    &uros_node,
-    ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Twist),
-    "/cmd_vel");
-  rclc_executor_add_subscription(&executor,&cmd_vel_sub,&cmd_vel_msg,&cmd_vel_callback,
-    ON_NEW_DATA);
-      Serial.println("[uROS] /cmd_vel subscriber OK");
-
-  rclc_subscription_init_default(
-    &navmode_sub,
-    &uros_node,
-    ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Bool),
-    "/nav_mode");
-
-  rclc_executor_add_subscription(
-      &executor,
-      &navmode_sub,
-      &navmode_msg,
-      &navModeCallback,
-      ON_NEW_DATA);
+      &cmdvel_sub, &uros_node,
+      ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Twist), "/cmd_vel");
+  rclc_executor_add_subscription(&executor, &cmdvel_sub, &cmdvel_msg,
+                                 &cmdVelCallback, ON_NEW_DATA);
+  Serial.println("[uROS] /cmd_vel subscriber OK");
 
   microRosReady = true;
   Serial.println("[uROS] microRosReady = true");

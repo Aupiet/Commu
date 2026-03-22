@@ -4,8 +4,6 @@
 #include "lidar_manager.h"
 #include "motor_control.h"
 #include "naive_navigation.h"
-#include "pure_pursuit.h"
-//#include "planner.h"
 
 
 #include <Arduino.h>
@@ -18,9 +16,6 @@
 #define AGENT_PORT 8888
 
 // ===== TEST MOTEURS AU DÉMARRAGE =====
-
-static unsigned long startTime = 0; //Temporaire, le temps de trouver le temps de parcours pour un circuit
-
 void testMotorsStartup() {
   delay(500);
 
@@ -44,7 +39,6 @@ void testMotorsStartup() {
 
 void setup() {
   delay(2000);
-  startTime = millis();
   Serial.begin(115200);
   Serial.println("=== ESP32 WAVE ROVER START ===");
   Serial.printf("[MEM] Free heap: %u bytes\n", ESP.getFreeHeap());
@@ -61,31 +55,26 @@ void setup() {
   // Test moteurs
   testMotorsStartup();
 
-  /* A ne pas utiliser : saturation core */
-  //setTestGrid();
-
-  // Mutex
+  // Mutexes
   ctrlMutex = xSemaphoreCreateMutex();
   lidarMutex = xSemaphoreCreateMutex();
   bufferMutex = xSemaphoreCreateMutex();
 
   memset(&ctrlData, 0, sizeof(ctrlData));
 
-  // Mode navigation naïve activé par défaut
+  // Mode navigation naïve activé
   currentNavMode = NAV_NAIVE;
 
   Serial.printf("[MEM] Free heap before tasks: %u bytes\n", ESP.getFreeHeap());
 
   // ===== TÂCHES =====
   xTaskCreatePinnedToCore(lidarTask, "LidarTask", 4096, NULL, 5, NULL, 1);
-  xTaskCreatePinnedToCore(microRosLidarTask, "uRosLidar", 24000, NULL, 5, NULL,1);
+  xTaskCreatePinnedToCore(microRosLidarTask, "uRosLidar", 24000, NULL, 5, NULL,
+                          1);
   xTaskCreatePinnedToCore(imuTask, "ImuTask", 8192, NULL, 4, NULL, 0);
   xTaskCreatePinnedToCore(motorControlTask, "Motors", 4096, NULL, 3, NULL, 1);
-  xTaskCreatePinnedToCore(naiveNavigationTask, "NavNaive", 4096, NULL, 2, NULL,1);
-  xTaskCreatePinnedToCore(purePursuitTask, "PurePursuit",4096,NULL,2,NULL,1);
-
-  /// A ne pas utiliser (déjà présent en python)
-  //xTaskCreatePinnedToCore(plannerTask, "planner", 4096, NULL, 1, NULL, 1);
+  xTaskCreatePinnedToCore(naiveNavigationTask, "NavNaive", 4096, NULL, 2, NULL,
+                          1);
 
   Serial.printf("[MEM] Free heap after tasks: %u bytes\n", ESP.getFreeHeap());
   Serial.println("=== SYSTEM READY ===");

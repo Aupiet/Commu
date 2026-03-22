@@ -3,28 +3,6 @@
 
 #include "config.h"
 
-typedef struct {
-  float x;
-  float y;
-  float theta;
-} RobotPose;
-
-/// Gestion de mode : Passer du mode reconnaissance àfull autonomie sans action extérieure
-typedef enum
-{
-    NAV_NAIVE,
-    NAV_AUTONOMOUS // ← nouveau (Nav2)
-} NavMode;
-
-extern RobotPose robotPose;
-
-
-// Pour algorithme A* et Djikstra
-extern int robot_x;
-extern int robot_y;
-extern int goal_x;
-extern int goal_y;
-
 // #include "speed_estimator.h"
 //  Ajouter dans la section "Control data" :
 // extern SpeedEstimate estimatedSpeed;
@@ -41,6 +19,7 @@ extern NavMode currentNavMode;
 extern volatile int currentSpeedPWM;
 extern volatile int currentDirection;
 extern volatile bool naifEnabled;
+extern volatile unsigned long lastDirectionCmdTime;
 
 // LiDAR data
 extern LidarPoint pointBuffer[POINT_BUFFER_SIZE];

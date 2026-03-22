@@ -1,6 +1,5 @@
 #include "IMU.h"
 #include "config.h"
-#include "globals.h"
 #include <Wire.h>
 #include <sensor_msgs/msg/imu.h>
 
@@ -252,9 +251,6 @@ void imuTask(void *pvParameters) {
 
   while (true) {
     updateIMUData();
-
-    // Ajout  Pure Pursuit : Récupération de l'orientation du robot
-    robotPose.theta = stAngles.yaw;
 
     // Remplir le message partagé (publié par microRosLidarTask)
     imu_msg.orientation.x = q1;

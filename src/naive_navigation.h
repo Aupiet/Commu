@@ -20,7 +20,7 @@
 // --- Comportement ---
 #define NAV_FORWARD_HALF_ANGLE 60.0f
 #define NAV_FORWARD_SPEED 180 // -30%
-#define NAV_SLOW_SPEED 70     // -30%
+#define NAV_SLOW_SPEED 80    // -30%
 #define NAV_ANGLE_GAIN 2.0f
 #define NAV_TASK_PERIOD_MS 100
 #define NAV_AVG_WINDOW 5
@@ -36,7 +36,7 @@
   0.03f // Force du centrage (degrés par mm de différence)
 
 // --- Rotation quand bloqué ---
-#define NAV_SPIN_PWM 120
+#define NAV_SPIN_PWM 90
 
 // --- Vitesse adaptative ---
 #define NAV_CONFIDENCE_DIST_MM 1500

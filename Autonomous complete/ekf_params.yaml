@@ -1,0 +1,77 @@
+#Code partiellement généré par IA
+
+slam_toolbox:
+  ros__parameters:
+
+    # --- 1. Configuration générale pour le lancement de RVIZ2 ---
+    use_sim_time: false
+    scan_queue_size: 10
+    tf_buffer_duration: 30.0
+    transform_timeout: 0.5
+    
+    # --- 2. Résolution ---
+    # Plus la résolution est basse, plus la carte sera précise (mais demandera plus de CPU)
+    resolution: 0.05
+    max_laser_range: 12.0 
+
+    # --- 3. Filtrage Odométrie ---
+    # Ces paramètres empêchent le SLAM de mettre à jour la carte si le robot n'a fait que trembler ou glisser un tout petit peu.
+    
+    # Distance minimale pour mettre à jour la carte (On passe de 0.1m à 0.05m pour la précision)
+    minimum_travel_distance: 0.05
+    # Angle minimum pour mettre à jour (On filtre les petites vibrations angulaires)
+    minimum_travel_heading: 0.10
+    
+    # Fréquence maximale de mise à jour (pour éviter de spammer le calcul si l'odom sautille)
+    minimum_time_interval: 0.5
+    transform_publish_period: 0.05 # 20Hz
+
+    # --- 4. Qualité du matching ---
+    # C'est ici qu'on corrige les erreurs de rf2o
+    use_scan_matching: true
+    use_scan_barycenter: true
+    # Score minimum (0-100) pour accepter une position. 
+    # Augmenter le minimum à 60 force le SLAM à être sûr de lui avant de dessiner.
+    minimum_score: 60.0  
+    
+    # --- 5. Frames et topics ---
+    map_frame: map
+    odom_frame: odom
+    base_frame: base_link
+    scan_topic: /scan
+    mode: mapping
+
+    # --- 6. Configuration Wifi (QoS) ---
+    qos_overrides:
+      /scan:
+        reliability: "best_effort"
+        durability: "volatile"
+        history: "keep_last"
+        depth: 10 
+
+#Filtre de Kalman
+ekf_filter_node:
+  ros__parameters:
+
+    odom0: "/odom_rf2o"
+    odom0_config: [true, true, false,
+                   false, false, true,
+                   false, false, false,
+                   false, false, false]
+
+    imu0: "/imu/data"
+    imu0_config: [false, false, false,
+                  true, true, true,
+                  false, false, true,
+                  false, false, false]
+
+    odom0_queue_size: 10
+    imu0_queue_size: 10
+
+    map_frame: "map"
+    odom_frame: "odom"
+    base_link_frame: "base_link"
+    world_frame: "odom"
+
+    frequency: 50.0
+    two_d_mode: true
